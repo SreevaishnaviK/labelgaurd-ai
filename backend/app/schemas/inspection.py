@@ -26,6 +26,11 @@ class OCRPageOut(BaseModel):
     width: int
     height: int
     full_text: str
+    # Processed (OCR-ready) page image relative to the backend's UPLOAD_DIR.
+    processed_path: str | None = None
+    # True when perspective correction changed geometry; original-image
+    # coordinates are then invalid for this page.
+    warped: bool = False
 
 
 class UploadSuccess(BaseModel):

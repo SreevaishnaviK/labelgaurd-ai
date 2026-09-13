@@ -26,8 +26,8 @@ INSPECTION_STATUS = sa.Enum(
 
 
 def upgrade() -> None:
-    INSPECTION_STATUS.create(op.get_bind(), checkfirst=True)
-
+    # The Enum column below makes SQLAlchemy emit CREATE TYPE itself — creating
+    # it manually here as well raises DuplicateObject on PostgreSQL.
     op.create_table(
         "inspections",
         sa.Column("id", sa.Integer(), nullable=False),

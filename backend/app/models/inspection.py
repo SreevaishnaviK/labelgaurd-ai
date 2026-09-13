@@ -23,13 +23,22 @@ class ProcessingStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+def _enum_values(enum_cls):
+    """Store enum VALUES (lowercase labels the migrations create), not NAMES."""
+    return [member.value for member in enum_cls]
+
+
 class Inspection(Base):
     __tablename__ = "inspections"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inspection_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     status: Mapped[InspectionStatus] = mapped_column(
-        Enum(InspectionStatus, name="inspection_status"),
+        Enum(
+            InspectionStatus,
+            name="inspection_status",
+            values_callable=_enum_values,
+        ),
         default=InspectionStatus.UPLOADED,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -45,7 +54,11 @@ class Inspection(Base):
     document_type: Mapped[str | None] = mapped_column(String(32))
     page_count: Mapped[int | None] = mapped_column(default=0)
     processing_status: Mapped[ProcessingStatus] = mapped_column(
-        Enum(ProcessingStatus, name="processing_status"),
+        Enum(
+            ProcessingStatus,
+            name="processing_status",
+            values_callable=_enum_values,
+        ),
         default=ProcessingStatus.UPLOADED,
     )
 
@@ -101,6 +114,12 @@ class OCRDocument(Base):
     width: Mapped[int] = mapped_column(nullable=False)
     height: Mapped[int] = mapped_column(nullable=False)
     full_text: Mapped[str] = mapped_column(Text, default="")
+    # Processed (OCR-ready) page image, stored by the CV service under
+    # UPLOAD_DIR/processed/... (shared volume in Docker). Null when unavailable.
+    processed_path: Mapped[str | None] = mapped_column(String(1024))
+    # True when perspective correction changed geometry — original-image
+    # coordinates are then invalid for this page.
+    warped: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     inspection: Mapped[Inspection] = relationship(back_populates="ocr_documents")

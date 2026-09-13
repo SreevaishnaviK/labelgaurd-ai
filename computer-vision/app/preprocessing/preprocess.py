@@ -21,27 +21,46 @@ from app.preprocessing.orientation import correct_orientation
 
 
 def detect_document_contour(gray: np.ndarray) -> np.ndarray | None:
-    """Return the largest quadrilateral contour, or None if no confident one exists."""
+    """Return a confidently-angled document quadrilateral, or None.
+
+    A rectangular label photographed straight-on produces a quad hugging the
+    frame edges — warping that merely crops margins and destroys text. Only a
+    genuinely tilted document (corners clearly pulled away from the frame)
+    justifies correction.
+    """
+    height, width = gray.shape[:2]
+    frame_area = float(height * width)
+    margin = 0.08  # required gap between document corners and the frame
+    min_gap_x = margin * width
+    min_gap_y = margin * height
+
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 50, 150)
     edges = cv2.dilate(edges, np.ones((3, 3), np.uint8))
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
-    area_limit = 0.15 * gray.shape[0] * gray.shape[1]
+    area_limit = 0.15 * frame_area
     for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
         area = cv2.contourArea(contour)
-        if area < area_limit:
+        if area < area_limit or area < 0.30 * frame_area:
             continue  # too small to be the document
         hull = cv2.convexHull(contour)
         peri = cv2.arcLength(hull, True)
         approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
         if len(approx) != 4 or not cv2.isContourConvex(approx):
             continue
-        # Require near-convex quadrilateral covering a healthy share of frame.
-        if area < 0.30 * gray.shape[0] * gray.shape[1]:
+        quad = approx.reshape(4, 2).astype(np.float32)
+        # Every corner must sit clearly inside the frame — a straight-on photo
+        # has corners ON the frame, which is not a perspective problem.
+        if (
+            quad[:, 0].min() < min_gap_x
+            or quad[:, 0].max() > width - min_gap_x
+            or quad[:, 1].min() < min_gap_y
+            or quad[:, 1].max() > height - min_gap_y
+        ):
             continue
-        return approx.reshape(4, 2).astype(np.float32)
+        return quad
     return None
 
 
@@ -49,6 +68,7 @@ def perspective_correction(gray: np.ndarray) -> np.ndarray:
     """Warp to the detected document only when confidence is high.
 
     Detection requires a convex quadrilateral covering ≥30% of the frame whose
+    corners sit clearly inside it (a genuinely tilted document) and whose
     opposite sides are roughly parallel — otherwise the original is returned
     untouched. Conservative by design.
     """
@@ -84,14 +104,22 @@ def perspective_correction(gray: np.ndarray) -> np.ndarray:
     return cv2.warpPerspective(gray, matrix, (out_w, out_h), flags=cv2.INTER_CUBIC)
 
 
-def preprocess_for_ocr(image):
-    """Run the full pipeline. Returns (ocr_ready_gray_matrix, width, height)."""
+def preprocess_for_ocr(image) -> tuple[np.ndarray, int, int, bool]:
+    """Run the full pipeline.
+
+    Returns (ocr_ready_gray_matrix, width, height, warped) where `warped` is
+    True only when perspective correction changed the geometry — consumers
+    that overlay coordinates on the ORIGINAL image must treat those
+    coordinates as invalid for warped pages.
+    """
     oriented = correct_orientation(image)
     gray = to_grayscale(resize_preserving_aspect(oriented))
+    original_shape = gray.shape[:2]
     gray = perspective_correction(gray)
+    warped = gray.shape[:2] != original_shape
     gray = enhance_contrast(gray)
     gray = reduce_noise(gray)
     gray = adaptive_threshold_when_beneficial(gray)
     gray = sharpen_lightly(gray)
     height, width = gray.shape[:2]
-    return gray, width, height
+    return gray, width, height, warped

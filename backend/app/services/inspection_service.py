@@ -142,6 +142,8 @@ def create_inspection_from_upload(file: UploadFile, session: Session) -> Inspect
                     width=int(page["width"]),
                     height=int(page["height"]),
                     full_text=page.get("full_text", ""),
+                    processed_path=page.get("processed_image"),
+                    warped=bool(page.get("warped", False)),
                 )
             )
             for block in page.get("blocks", []):
@@ -182,13 +184,6 @@ def get_inspection_by_public_id(session: Session, inspection_id: str) -> Inspect
     if inspection is None:
         raise _fail(404, "INSPECTION_NOT_FOUND", "No inspection exists with that ID.")
     return inspection
-
-
-def latest_inspection(session: Session) -> Inspection | None:
-    """Most recently created inspection (for demo/result convenience)."""
-    return session.execute(
-        select(Inspection).order_by(Inspection.id.desc()).limit(1)
-    ).scalar_one_or_none()
 
 
 def average_confidence(session: Session, inspection_id: int) -> float:

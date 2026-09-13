@@ -45,10 +45,11 @@ def test_original_not_mutated() -> None:
 
 def test_pipeline_returns_valid_matrix() -> None:
     image = Image.new("RGB", (400, 200), "white")
-    gray, width, height = preprocess_for_ocr(image)
+    gray, width, height, warped = preprocess_for_ocr(image)
     assert gray.ndim == 2
     assert (height, width) == gray.shape
     assert width > 0 and height > 0
+    assert warped is False  # straight-on image: no perspective correction
 
 
 def test_pipeline_does_not_mutate_input() -> None:
@@ -67,5 +68,18 @@ def test_pipeline_deterministic() -> None:
 
 def test_small_image_upscaled_to_min_edge() -> None:
     image = Image.new("RGB", (100, 50), "white")
-    _, width, height = preprocess_for_ocr(image)
+    _, width, height, _ = preprocess_for_ocr(image)
     assert max(width, height) >= 640  # MIN_OCR_EDGE respected
+
+
+def test_warped_flag_true_when_geometry_changes() -> None:
+    """A confident trapezoid document must set warped=True."""
+    import cv2
+    import numpy as np
+
+    image = Image.new("L", (800, 800), 255)
+    matrix = np.array(image)
+    quad = np.array([[200, 100], [650, 180], [600, 700], [150, 620]], dtype=np.int32)
+    cv2.fillPoly(matrix, [quad], 0)  # dark "document" on light background
+    _, _, _, warped = preprocess_for_ocr(Image.fromarray(matrix))
+    assert warped is True

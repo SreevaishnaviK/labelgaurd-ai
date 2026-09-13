@@ -22,6 +22,10 @@ export type OCRPage = {
   width: number;
   height: number;
   full_text: string;
+  /** Processed (OCR-ready) page image path, relative to the backend. */
+  processed_path: string | null;
+  /** True when perspective correction changed geometry. */
+  warped: boolean;
 };
 
 export type FileMeta = {

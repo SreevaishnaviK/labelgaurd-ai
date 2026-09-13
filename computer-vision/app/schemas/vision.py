@@ -25,6 +25,9 @@ class OCRPage(BaseModel):
     height: int
     full_text: str
     blocks: list[OCRBlock]
+    # Geometry of the processed page vs the original upload.
+    processed_image: str
+    warped: bool
 
 
 class AnalyzeMetadata(BaseModel):

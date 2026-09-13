@@ -60,8 +60,9 @@ the original image with a toggle.
 
 - **Tesseract in Docker:** the computer-vision image installs `tesseract-ocr` and
   `poppler-utils` (PDF rasterization) on top of the Python/OpenCV stack — no host install needed.
-  For local (non-Docker) runs, install Tesseract + Poppler yourself and point
-  `TESSERACT_CMD`/`POPPLER_PATH` at them if they are not on `PATH`.
+  For local (non-Docker) runs, install Tesseract + Poppler and have them on `PATH` (pytesseract
+  and pdf2image discover them automatically); the integration tests skip when the binaries are
+  absent.
 - **Phase 2 models:** `Inspection` gains file/processing fields; `OCRDocument` and `OCRBlock`
   store page-level results with proper foreign keys (Alembic migration `0002`).
 

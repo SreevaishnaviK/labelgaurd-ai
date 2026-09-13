@@ -48,6 +48,9 @@ export default function UploadFlow({ onCompleted }: { onCompleted: (result: Uplo
   }, []);
 
   const clearFile = useCallback(() => {
+    // Reset the phase too — after a failed upload it would otherwise stay
+    // "failed" with no error shown, rendering an empty, dead dropzone.
+    setPhase("idle");
     setFileWithPreview(null);
     setValidationMessage(null);
     setErrorMessage(null);
@@ -61,6 +64,7 @@ export default function UploadFlow({ onCompleted }: { onCompleted: (result: Uplo
         setValidationMessage(message);
         return;
       }
+      setPhase("idle");
       setValidationMessage(null);
       setErrorMessage(null);
       setFileWithPreview(candidate);

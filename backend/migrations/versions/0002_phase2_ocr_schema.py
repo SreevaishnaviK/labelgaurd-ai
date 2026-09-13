@@ -21,6 +21,8 @@ PROCESSING_STATUS = sa.Enum(
 
 
 def upgrade() -> None:
+    # Unlike create_table (whose Enum columns emit CREATE TYPE themselves),
+    # add_column does not create the native enum on PostgreSQL — do it here.
     PROCESSING_STATUS.create(op.get_bind(), checkfirst=True)
 
     op.add_column("inspections", sa.Column("original_filename", sa.String(length=512), nullable=True))
@@ -86,4 +88,4 @@ def downgrade() -> None:
     op.drop_column("inspections", "file_path")
     op.drop_column("inspections", "stored_filename")
     op.drop_column("inspections", "original_filename")
-    PROCESSING_STATUS.drop(op.get_bind(), checkfirst=True)
+    PROCESSING_STATUS.drop(op.get_bind(), checkfirst=True)  # column drop leaves the type

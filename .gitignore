@@ -40,3 +40,4 @@ Thumbs.db
 
 # Local agent workspace
 .freebuff/
+__pycache__/

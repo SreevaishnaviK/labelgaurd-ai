@@ -9,6 +9,9 @@ class Settings(BaseSettings):
 
     service_port: int = 8001
 
+    # Where processed (OCR-ready) page images are written.
+    upload_dir: str = "uploads"
+
     # OCR engine selection (abstraction point for future engines)
     ocr_engine: str = "tesseract"
 

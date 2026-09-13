@@ -36,6 +36,8 @@ def _to_out(inspection, session: Session) -> InspectionOut:
             width=doc.width,
             height=doc.height,
             full_text=doc.full_text or "",
+            processed_path=doc.processed_path,
+            warped=bool(doc.warped),
         )
         for doc in sorted(inspection.ocr_documents, key=lambda d: d.page_number)
     ]
@@ -72,15 +74,6 @@ def _to_out(inspection, session: Session) -> InspectionOut:
             "average_confidence": average_confidence(session, inspection.id),
         },
     )
-
-
-@router.get("/latest")
-def get_latest_inspection(session: Session = Depends(get_db)):
-    """Most recent inspection — convenience for the demo result screen."""
-    inspection = inspection_service.latest_inspection(session)
-    if inspection is None:
-        raise HTTPException(status_code=404, detail={"code": "NO_INSPECTIONS", "message": "No inspections exist yet."})
-    return _to_out(inspection, session)
 
 
 @router.get("/{inspection_id}")

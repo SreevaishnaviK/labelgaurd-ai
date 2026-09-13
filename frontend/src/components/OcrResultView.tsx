@@ -41,12 +41,17 @@ function ImageEvidence({
   const page = inspection.ocr.pages[0];
   const url = inspectionImageUrl(inspection.inspection_id);
 
-  // Bounding boxes use OCR page dimensions; the rendered image may be scaled,
-  // so boxes are positioned in percentages of the natural size.
+  // Blocks carry coordinates against the processed OCR page. Perspective
+  // correction changes geometry, so on warped pages the boxes would drift on
+  // the original image — they are hidden with an explanatory note instead.
+  const warped = page?.warped ?? false;
+
+  // Resize-only pages: map processed-page coordinates onto the original by
+  // aspect ratio (uniform scale in each axis; aspect is preserved).
   const scale = useMemo(() => {
-    if (!naturalSize || !page || page.width === 0 || page.height === 0) return null;
+    if (warped || !naturalSize || !page || page.width === 0 || page.height === 0) return null;
     return { x: naturalSize.width / page.width, y: naturalSize.height / page.height };
-  }, [naturalSize, page]);
+  }, [warped, naturalSize, page]);
 
   return (
     <div className="relative inline-block">
@@ -59,7 +64,7 @@ function ImageEvidence({
           setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
         }}
       />
-      {showBoxes && scale && (
+      {showBoxes && scale && !warped && (
         <div className="absolute inset-0" aria-hidden="true">
           {inspection.ocr.blocks.map((block) => {
             const isActive = activeBlock?.block_id === block.block_id;
@@ -192,6 +197,15 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
             onSelectBlock={setActiveBlock}
             showBoxes={showBoxes}
           />
+
+          {inspection.ocr.pages[0]?.warped && (
+            <p className="mt-4 rounded-xl border border-brand-border bg-brand-light/60 p-4 text-xs leading-relaxed text-brand-muted">
+              Perspective correction was applied to this label, so its text
+              coordinates do not map onto the original image — the box overlay is
+              disabled for this page. The processed image the OCR engine read is
+              preserved server-side as evidence.
+            </p>
+          )}
 
           {activeBlock && (
             <div className="mt-4 rounded-xl border border-brand-border bg-brand-light/60 p-4">
