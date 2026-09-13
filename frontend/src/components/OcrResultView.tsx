@@ -23,6 +23,7 @@ const FIELD_LABELS: Record<string, string> = {
   manufacturer: "Manufacturer",
   packer: "Packer",
   importer: "Importer",
+  marketer: "Marketer",
   manufacturer_address: "Manufacturer Address",
   packer_address: "Packer Address",
   importer_address: "Importer Address",

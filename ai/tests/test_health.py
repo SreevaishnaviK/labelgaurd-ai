@@ -38,7 +38,9 @@ def test_extract_returns_full_field_set() -> None:
     assert body["status"] == "success"
     assert body["inspection_id"] == "LGA-2026-00001"
     names = [field["field_name"] for field in body["fields"]]
-    assert len(names) == 23 and len(set(names)) == 23  # full stable field set
+    # Full stable field set: the prompt's 23 fields + marketer ("Marketed by"
+    # is a listed role indicator; its value must not be dropped or mislabeled).
+    assert len(names) == 24 and len(set(names)) == 24
     for field in body["fields"]:
         assert field["status"] in ("detected", "not_detected", "ambiguous")
         assert field["method"] == "deterministic"

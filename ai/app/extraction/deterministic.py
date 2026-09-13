@@ -21,7 +21,8 @@ from app.utils.text import sort_blocks
 # ---------------------------------------------------------------- patterns
 
 _MONEY = r"(?:₹|rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
-_MRP_RE = re.compile(rf"\b(?:m\.?r\.?p|maximum\s+retail\s+price)\b\.?[:\s]*{_MONEY}", re.IGNORECASE)
+_MRP_INDICATOR = r"m\.?r\.?p|maximum\s+retail\s+price"
+_MRP_RE = re.compile(rf"\b(?:{_MRP_INDICATOR})\b\.?[:\s]*{_MONEY}", re.IGNORECASE)
 
 _NET_RE = re.compile(
     r"\b(?:net\s+(?:qty|quantity|wt|weight)|contents)[.:]?\s*"
@@ -41,12 +42,15 @@ _DATE_FIELDS = [
 _PHONE_INDICATORS = r"(?:consumer\s+care|consumer\s+complaints|customer\s+care|customer\s+service|toll\s*free|helpline|contact\s+us)"
 _PHONE_RE = re.compile(rf"{_PHONE_INDICATORS}[^0-9+]*(\+?91[\s-]?[0-9][0-9\s-]{{8,11}}|[0-9]{{10,12}})", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-_WEBSITE_RE = re.compile(r"\b(?:https?://|www\.)[^\s,;]+|\b[a-z0-9-]+\.(?:com|in|org|net|co\.in)\b(?:/[^\s,;]*)?", re.IGNORECASE)
 
 _ROLES = {
     "manufacturer": r"\bmanufactured\s*(?:&|and)\s*(?:packed|marketed)?\s*by\b|\bmanufactured\s+by\b|\bmfd\s+by\b",
     "packer": r"\b(?:manufactured\s*(?:&|and)\s*packed|packed\s*(?:&|and)\s*marketed|packed)\s+by\b",
     "importer": r"\b(?:imported\s+by|importer)\b[:\s]*",
+    # Standalone "Marketed by" only: combined forms ("Packed & Marketed by",
+    # "Manufactured and Marketed by") belong to packer/manufacturer, so the
+    # lookbehind excludes a preceding "& " / "and ".
+    "marketer": r"(?<!&\s)(?<!and\s)\bmarketed\s+by\b",
 }
 _ROLE_RES = {role: re.compile(pattern, re.IGNORECASE) for role, pattern in _ROLES.items()}
 
@@ -79,7 +83,8 @@ _RESERVED_RE = re.compile(
     r"\b(?:mrp|m\.r\.p|maximum\s+retail|net\s+(?:qty|quantity|wt|weight)|contents|"
     r"manufactured|packed|marketed|imported|importer|batch|lot\s*no|mfd|mfg|pkd|"
     r"best\s+before|use\s+by|exp|expiry|consumer\s+care|customer\s+care|helpline|"
-    r"toll\s*free|ingredients|country\s+of\s+origin|made\s+in|www\.|@)",
+    r"toll\s*free|ingredients|country\s+of\s+origin|made\s+in|www\.|@|"
+    r"non[\s-]?veg(?:etarian)?|veg(?:etarian)?)",
     re.IGNORECASE,
 )
 
@@ -165,17 +170,31 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
 
     def _extract_mrp(self, blocks: list[OCRBlockIn]) -> list[Trace]:
         traces = []
-        for block in blocks:
+        ordered = sort_blocks(blocks)
+        for index, block in enumerate(ordered):
             match = _MRP_RE.search(block.text)
             if match:
-                amount = float(match.group(1).replace(",", ""))
                 traces.append(
                     Trace(
-                        value={"amount": amount, "currency": "INR"},
+                        value={"amount": float(match.group(1).replace(",", "")), "currency": "INR"},
                         blocks=[block],
                         raw_text=match.group().strip(),
                     )
                 )
+                continue
+            # Indicator alone on its line: the amount often sits in the next
+            # reading-order block — keep both as evidence.
+            if re.search(rf"\b(?:{_MRP_INDICATOR})\b", block.text, re.IGNORECASE) and index + 1 < len(ordered):
+                follower = ordered[index + 1]
+                money_match = re.fullmatch(_MONEY, follower.text.strip(), re.IGNORECASE)
+                if money_match:
+                    traces.append(
+                        Trace(
+                            value={"amount": float(money_match.group(1).replace(",", "")), "currency": "INR"},
+                            blocks=[block, follower],
+                            raw_text=f"{block.text.strip()} {follower.text.strip()}",
+                        )
+                    )
         return traces
 
     def _extract_net_quantity(self, blocks: list[OCRBlockIn]) -> list[Trace]:
@@ -196,9 +215,12 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
         return traces
 
     def _extract_product_name(self, blocks: list[OCRBlockIn]) -> list[Trace]:
-        """Prominence heuristic: largest area among the top-reading-order
-        blocks that are not reserved (MRP, net qty, roles, dates, ...) and
-        are predominantly alphabetic (rejects phone numbers and codes)."""
+        """Prominence heuristic: the most visually dominant eligible block —
+        glyph area × text length, with a 1.25× bonus in the top half of the
+        eligible span (spec: top/center label text is a name signal, not a
+        hard filter — a large title low on the label must still win).
+        Eligibility: not reserved (MRP, net qty, roles, declarations, ...)
+        and predominantly alphabetic (rejects codes and phone numbers)."""
         ordered = sort_blocks(blocks)
         eligible = [
             b
@@ -206,19 +228,22 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
             if not _RESERVED_RE.search(b.text)
             and sum(ch.isalpha() for ch in b.text) >= 0.6 * max(len(b.text.strip()), 1)
         ]
-        # Restrict to the top third of reading order — a product name sits high.
-        if eligible:
-            top_y = min((b.bbox.get("y", 0) for b in eligible), default=0)
-            height = max((b.bbox.get("y", 0) + b.bbox.get("height", 0) for b in eligible), default=1)
-            band = top_y + (height - top_y) * 0.5
-            eligible = [b for b in eligible if b.bbox.get("y", 0) <= band]
         if not eligible:
             return []
-        best = max(eligible, key=lambda b: (b.bbox or {}).get("width", 0) * (b.bbox or {}).get("height", 0))
+        top_y = min(b.bbox.get("y", 0) for b in eligible)
+        max_bottom = max(b.bbox.get("y", 0) + b.bbox.get("height", 0) for b in eligible)
+        midpoint = top_y + max(max_bottom - top_y, 1) * 0.5
+
+        def dominance(b: OCRBlockIn) -> float:
+            area = (b.bbox or {}).get("width", 0) * (b.bbox or {}).get("height", 0)
+            position = 1.25 if b.bbox.get("y", 0) <= midpoint else 1.0
+            return area * max(len(b.text.strip()), 1) * position
+
+        best = max(eligible, key=dominance)
         words = best.text.strip()
         if not words or len(words) < 3:
             return []
-        return [Trace(value={"name": words}, blocks=[best], raw_text=best.text.strip())]
+        return [Trace(value={"name": words}, blocks=[best], raw_text=words)]
 
     def _role_declarations(self, role: str, blocks: list[OCRBlockIn]) -> list[dict]:
         """Parse each role declaration into name vs address lines.
@@ -356,15 +381,43 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
 
     def _extract_contact(self, blocks: list[OCRBlockIn]) -> dict[str, list[Trace]]:
         found: dict[str, list[Trace]] = {}
-        for block in blocks:
-            has_indicator = bool(re.search(_PHONE_INDICATORS, block.text, re.IGNORECASE))
-            if has_indicator:
+        ordered = sort_blocks(blocks)
+        for index, block in enumerate(ordered):
+            if re.search(_PHONE_INDICATORS, block.text, re.IGNORECASE):
                 phone = norm.normalize_phone(block.text)
                 if phone:
                     found.setdefault("customer_care_phone", []).append(
                         Trace(value={"phone": phone}, blocks=[block], raw_text=block.text.strip())
                     )
+                else:
+                    # Indicator alone on its line: the number often sits in the
+                    # next reading-order block — keep both as evidence.
+                    if index + 1 < len(ordered):
+                        follower = ordered[index + 1]
+                        follower_phone = norm.normalize_phone(follower.text)
+                        if follower_phone:
+                            found.setdefault("customer_care_phone", []).append(
+                                Trace(
+                                    value={"phone": follower_phone},
+                                    blocks=[block, follower],
+                                    raw_text=f"{block.text.strip()} {follower.text.strip()}",
+                                )
+                            )
                 email = norm.normalize_email(block.text)
+                if not email:
+                    # Same cross-block treatment for the address line: the
+                    # email often sits one or two lines under the indicator.
+                    for follower in ordered[index + 1 : index + 3]:
+                        follower_email = norm.normalize_email(follower.text)
+                        if follower_email:
+                            found.setdefault("customer_care_email", []).append(
+                                Trace(
+                                    value={"email": follower_email},
+                                    blocks=[block, follower],
+                                    raw_text=f"{block.text.strip()} {follower.text.strip()}",
+                                )
+                            )
+                            break
                 if email:
                     found.setdefault("customer_care_email", []).append(
                         Trace(value={"email": email}, blocks=[block], raw_text=block.text.strip())
@@ -378,7 +431,8 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
 
     def _extract_consumer_care(self, blocks: list[OCRBlockIn]) -> list[Trace]:
         traces = []
-        for block in blocks:
+        ordered = sort_blocks(blocks)
+        for index, block in enumerate(ordered):
             match = re.search(rf"({_PHONE_INDICATORS})[:\s]*([^\n]{{4,60}})", block.text, re.IGNORECASE)
             if match:
                 traces.append(
@@ -388,6 +442,19 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
                         raw_text=match.group().strip(),
                     )
                 )
+            elif re.search(_PHONE_INDICATORS, block.text, re.IGNORECASE) and index + 1 < len(ordered):
+                follower = ordered[index + 1]
+                # Indicator alone on its line: the contact sits below it —
+                # unless the follower is itself an indicator block (e.g.
+                # "Tollfree 1800-…"), which owns its own declaration.
+                if not re.search(_PHONE_INDICATORS, follower.text, re.IGNORECASE):
+                    traces.append(
+                        Trace(
+                            value={"contact": follower.text.strip()},
+                            blocks=[block, follower],
+                            raw_text=f"{block.text.strip()} {follower.text.strip()}",
+                        )
+                    )
         return traces
 
     def _extract_country(self, blocks: list[OCRBlockIn]) -> list[Trace]:
@@ -457,6 +524,7 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
             "manufacturer": self._extract_role("manufacturer", blocks),
             "packer": self._extract_role("packer", blocks),
             "importer": self._extract_role("importer", blocks),
+            "marketer": self._extract_role("marketer", blocks),
             "manufacturer_address": self._extract_role_address("manufacturer", blocks),
             "packer_address": self._extract_role_address("packer", blocks),
             "importer_address": self._extract_role_address("importer", blocks),
@@ -471,7 +539,7 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
         traces_by_field.update(self._extract_contact(blocks))
 
         field_order = [
-            "product_name", "manufacturer", "packer", "importer",
+            "product_name", "manufacturer", "packer", "importer", "marketer",
             "manufacturer_address", "packer_address", "importer_address",
             "net_quantity", "mrp", "manufacturing_date", "packing_date",
             "best_before", "use_by", "expiry_date", "consumer_care",

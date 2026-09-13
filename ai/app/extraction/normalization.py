@@ -93,20 +93,17 @@ def normalize_email(text: str) -> str | None:
 
 
 _URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:/[^\s,;]*)?",
+    r"(?:https?://|www\.)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?:/[^\s,;]*)?",
     re.IGNORECASE,
 )
 
 
 def normalize_website(text: str) -> str | None:
-    """Extract a website. The TLD must be alphabetic so amounts like 68.00
-    are never mistaken for domains."""
+    """Extract a website only from visible URL text — a `www.` or
+    `http(s)://` indicator. Bare `example.in` words and email domains are not
+    websites; nothing is derived that is not actually visible."""
     match = _URL_RE.search(text)
     if not match:
         return None
     url = match.group().rstrip(".,;")
-    host = url.lower().removeprefix("https://").removeprefix("http://").split("/", 1)[0]
-    tld = host.rsplit(".", 1)[-1]
-    if not tld.isalpha():
-        return None
     return url if url.lower().startswith("http") else f"https://{url}"

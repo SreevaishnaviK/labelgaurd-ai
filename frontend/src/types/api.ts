@@ -37,6 +37,18 @@ export type InspectionStatus = "uploaded" | "processing" | "processed" | "failed
 
 export type FieldStatus = "detected" | "not_detected" | "ambiguous";
 
+/** All fields the AI service reports — the prompt's 23 plus marketer
+ * ("Marketed by" is a listed role indicator and gets its own field). */
+export const FIELD_NAMES = [
+  "product_name", "manufacturer", "packer", "importer", "marketer",
+  "manufacturer_address", "packer_address", "importer_address",
+  "net_quantity", "mrp", "manufacturing_date", "packing_date",
+  "best_before", "use_by", "expiry_date", "consumer_care",
+  "customer_care_phone", "customer_care_email", "website",
+  "batch_number", "lot_number", "country_of_origin", "ingredients",
+  "vegetarian_non_vegetarian",
+] as const;
+
 export type ExtractionEvidence = {
   ocr_block_id: string;
   page_number: number;

@@ -58,6 +58,25 @@ def test_mrp_not_inferred_without_indicator() -> None:
     assert fields["mrp"]["status"] == "not_detected"
 
 
+def test_mrp_amount_on_next_block() -> None:
+    """Indicator alone on its line with the amount in the following block:
+    both blocks are evidence, explicit-indicator rule still enforced."""
+    fields = _extract(
+        _block("MRP", "block_001", y=100),
+        _block("Rs. 68.00", "block_002", y=150),
+    )
+    assert fields["mrp"]["status"] == "detected"
+    assert fields["mrp"]["value"] == {"amount": 68.0, "currency": "INR"}
+    evidence_ids = [e["ocr_block_id"] for e in fields["mrp"]["evidence"]]
+    assert evidence_ids == ["block_001", "block_002"]
+
+
+def test_mrp_cross_block_requires_indicator() -> None:
+    """Amounts split across blocks without an MRP indicator stay undetected."""
+    fields = _extract(_block("Price", "block_001", y=100), _block("Rs. 68.00", "block_002", y=150))
+    assert fields["mrp"]["status"] == "not_detected"
+
+
 # ------------------------------------------------------------- net quantity
 
 @pytest.mark.parametrize(
@@ -110,6 +129,13 @@ def test_product_name_not_first_block_when_reserved() -> None:
     assert fields["product_name"]["value"]["name"] == "Golden Harvest Atta"
 
 
+def test_veg_declaration_not_product_name() -> None:
+    """A label with only the veg declaration must not yield 'VEG' as the name."""
+    fields = _extract(_block("VEG", "block_001", y=40, width=200, height=60))
+    assert fields["product_name"]["status"] == "not_detected"
+    assert fields["vegetarian_non_vegetarian"]["value"] == {"declaration": "vegetarian"}
+
+
 # ------------------------------------------------------------- roles + addresses
 
 def test_manufacturer_basic() -> None:
@@ -129,6 +155,33 @@ def test_packer_and_importer() -> None:
     )
     assert fields["packer"]["value"]["name"] == "FreshPack Ltd"
     assert fields["importer"]["value"]["name"] == "Global Imports Inc"
+
+
+def test_marketed_by_standalone() -> None:
+    fields = _extract(_block("Marketed by XYZ Retail Ltd"))
+    assert fields["marketer"]["status"] == "detected"
+    assert fields["marketer"]["value"] == {"name": "XYZ Retail Ltd"}
+
+
+def test_combined_marketed_forms_keep_own_role() -> None:
+    """'Packed & Marketed by' / 'Manufactured and Marketed by' must attribute
+    to packer/manufacturer only — never double-attribute to marketer."""
+    fields = _extract(_block("Packed & Marketed by FreshPack Ltd"))
+    assert fields["packer"]["value"] == {"name": "FreshPack Ltd"}
+    assert fields["marketer"]["status"] == "not_detected"
+    fields = _extract(_block("Manufactured and Marketed by Sharma Industries"))
+    assert fields["manufacturer"]["value"] == {"name": "Sharma Industries"}
+    assert fields["marketer"]["status"] == "not_detected"
+
+
+def test_product_name_prefers_area_dominant_title() -> None:
+    """A large title lower on the label beats small text above it —
+    prominence is glyph area (with a top-half bonus), not a hard top band."""
+    fields = _extract(
+        _block("Tasty Premium Snack 500g", "block_001", y=40, width=300, height=24),
+        _block("MEGA BITES", "block_002", y=300, width=600, height=72),
+    )
+    assert fields["product_name"]["value"]["name"] == "MEGA BITES"
 
 
 def test_multi_block_address_evidence() -> None:
@@ -189,9 +242,41 @@ def test_consumer_care_phone() -> None:
     assert fields["consumer_care"]["status"] == "detected"
 
 
+def test_consumer_care_value_on_next_block() -> None:
+    fields = _extract(
+        _block("Consumer Care", "block_001", y=100),
+        _block("1800-123-4567", "block_002", y=150),
+    )
+    assert fields["consumer_care"]["value"] == {"contact": "1800-123-4567"}
+    evidence_ids = [e["ocr_block_id"] for e in fields["consumer_care"]["evidence"]]
+    assert evidence_ids == ["block_001", "block_002"]
+
+
+def test_consumer_care_indicator_follower_not_double_attributed() -> None:
+    """'Consumer Care' / 'Tollfree 1800-…': the Tollfree line owns its own
+    declaration — one contact value, no ambiguity between readings."""
+    fields = _extract(
+        _block("Consumer Care", "block_001", y=100),
+        _block("Tollfree 1800-123-4567", "block_002", y=150),
+    )
+    assert fields["consumer_care"]["status"] == "detected"
+    assert fields["consumer_care"]["value"] == {"contact": "1800-123-4567"}
+
+
 def test_phone_with_indicator_on_same_line() -> None:
     fields = _extract(_block("Customer Care 1800 123 4567"))
     assert fields["customer_care_phone"]["value"] == {"phone": "18001234567"}
+
+
+def test_phone_on_next_block_after_indicator() -> None:
+    """Indicator alone on its line with the number in the following block."""
+    fields = _extract(
+        _block("Consumer Care", "block_001", y=100),
+        _block("1800-123-4567", "block_002", y=150),
+    )
+    assert fields["customer_care_phone"]["value"] == {"phone": "18001234567"}
+    evidence_ids = [e["ocr_block_id"] for e in fields["customer_care_phone"]["evidence"]]
+    assert evidence_ids == ["block_001", "block_002"]
 
 
 def test_email_extracted() -> None:
@@ -199,11 +284,36 @@ def test_email_extracted() -> None:
     assert fields["customer_care_email"]["value"] == {"email": "care@abcfoods.com"}
 
 
+def test_email_on_next_block_after_indicator() -> None:
+    fields = _extract(
+        _block("Consumer Care", "block_001", y=100),
+        _block("care@abcfoods.com", "block_002", y=150),
+    )
+    assert fields["customer_care_email"]["value"] == {"email": "care@abcfoods.com"}
+    evidence_ids = [e["ocr_block_id"] for e in fields["customer_care_email"]["evidence"]]
+    assert evidence_ids == ["block_001", "block_002"]
+
+
 def test_website_extracted() -> None:
     fields = _extract(_block("www.abcfoods.com"))
     assert fields["website"]["value"] == {"url": "https://www.abcfoods.com"}
     fields = _extract(_block("Visit https://example.in/products"))
     assert fields["website"]["value"] == {"url": "https://example.in/products"}
+
+
+def test_website_not_derived_from_email_domain() -> None:
+    """An email address without URL text is not a website: only what is
+    actually visible may be returned."""
+    fields = _extract(_block("Customer Service: care@x.com"))
+    assert fields["customer_care_email"]["value"] == {"email": "care@x.com"}
+    assert fields["website"]["status"] == "not_detected"
+
+
+def test_website_not_derived_from_bare_domain_word() -> None:
+    fields = _extract(_block("ABC Foods, Vijayawada"))
+    assert fields["website"]["status"] == "not_detected"
+    fields = _extract(_block("Amount 68.00 due"))
+    assert fields["website"]["status"] == "not_detected"
 
 
 def test_random_phone_without_indicator_not_consumer_care() -> None:
@@ -251,13 +361,13 @@ def test_ambiguous_mrp_surfaces_candidates() -> None:
 
 
 def test_not_detected_fields_are_complete() -> None:
-    """A lone descriptive block is a plausible product name; all other 22
-    fields must report not_detected with null values."""
+    """A lone descriptive block is a plausible product name; every other
+    field must report not_detected with null values."""
     fields = _extract(_block("Delicious tasty snack"))
     detected = [name for name, f in fields.items() if f["status"] == "detected"]
     assert detected == ["product_name"]
     not_detected = [name for name, f in fields.items() if f["status"] == "not_detected"]
-    assert len(not_detected) == 22
+    assert len(not_detected) == 23
     for name in not_detected:
         assert fields[name]["value"] is None
 
