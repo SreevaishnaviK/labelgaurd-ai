@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  --color-brand-dark: #173a2b;
+  --color-brand-green: #2f5d43;
+  --color-brand-light: #f4f6f1;
+  --color-brand-cream: #faf9f5;
+  --color-brand-white: #ffffff;
+  --color-brand-muted: #66736b;
+  --color-brand-border: #dde3dc;
+  --color-brand-success: #2e7d52;
+  --color-brand-warning: #b7791f;
+  --color-brand-danger: #b94a48;
+
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-brand-cream);
+  color: var(--color-brand-dark);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-brand-green) 22%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-green);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

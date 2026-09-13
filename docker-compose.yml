@@ -1,0 +1,63 @@
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg://labelguard:${POSTGRES_PASSWORD:-password}@postgres:5432/labelguard
+      - CORS_ORIGINS=http://localhost:5173
+      - CV_SERVICE_URL=http://computer-vision:8001
+      - AI_SERVICE_URL=http://ai:8002
+      - LEGAL_ENGINE_URL=http://legal-engine:8003
+    depends_on:
+      postgres:
+        condition: service_healthy
+      computer-vision:
+        condition: service_started
+      ai:
+        condition: service_started
+      legal-engine:
+        condition: service_started
+
+  computer-vision:
+    build: ./computer-vision
+    ports:
+      - "8001:8001"
+
+  ai:
+    build: ./ai
+    ports:
+      - "8002:8002"
+
+  legal-engine:
+    build: ./legal-engine
+    ports:
+      - "8003:8003"
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=labelguard
+      - POSTGRES_USER=labelguard
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labelguard -d labelguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
