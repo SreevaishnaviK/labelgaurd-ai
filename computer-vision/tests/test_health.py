@@ -12,9 +12,7 @@ def test_health() -> None:
     assert response.json() == {"status": "ok", "service": "LabelGuard AI Computer Vision"}
 
 
-def test_analyze_placeholder() -> None:
+def test_analyze_requires_file() -> None:
+    """Phase 2: the endpoint is real — it requires a multipart file."""
     response = client.post("/api/v1/analyze")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "not_implemented"
-    assert "Phase 2" in body["message"]
+    assert response.status_code == 422

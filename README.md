@@ -5,9 +5,65 @@ AI-powered compliance inspection for packaged commodity labels. **Analyze. Verif
 LabelGuard AI inspects packaged-commodity labels, extracts declared information, evaluates Legal
 Metrology requirements, and produces evidence-backed assessments for officer verification.
 
-> **Status: Phase 1 — System Foundation.** All five services start and expose health endpoints.
-> OCR, AI extraction, and compliance rules arrive in later phases. Placeholder endpoints return
-> `not_implemented` rather than fake results.
+> **Status: Phase 2 — Computer Vision / OCR.** Upload a real label and the backend stores the
+> original, runs preprocessing + Tesseract OCR in the computer-vision service, persists pages,
+> blocks, confidences, and pixel bounding boxes in PostgreSQL, and serves them back for display.
+> AI field extraction and Legal Metrology rules arrive in later phases — nothing here fabricates
+> results or judges compliance.
+
+## Phase 2 — OCR pipeline
+
+```text
+Upload (frontend) → POST /api/v1/inspections/upload (backend)
+  → original stored under uploads/originals/<uuid>.<ext>
+  → forwarded to POST /api/v1/analyze (computer-vision)
+      load safely → EXIF orientation → perspective correction (only when confident)
+      → resize → grayscale → contrast → denoise → adaptive threshold → light sharpen
+      → Tesseract OCR (engine-agnostic BaseOCREngine abstraction)
+  → pages, blocks, confidence, pixel bboxes persisted (OCRDocument / OCRBlock)
+  → GET /api/v1/inspections/{inspection_id} powers the OCR result screen
+```
+
+- **Supported inputs:** PNG, JPG, JPEG, PDF (max 20 MB). MIME, extension, size, and decodability
+  are all validated; the filename alone is never trusted. PDFs are converted per page with
+  `pdf2image` and OCR'd independently — page coordinates are never merged.
+- **Safety:** originals are never modified; processed variants are stored separately under
+  `uploads/processed/`. Storage names are UUIDs (path-traversal safe), filesystem paths are never
+  exposed through APIs, and backend→CV calls have a configurable timeout with `failed` status
+  persisted on error.
+- **Key APIs** (all documented in each service's Swagger UI):
+
+```http
+POST /api/v1/inspections/upload      # multipart file → inspection + OCR summary
+GET  /api/v1/inspections/{id}        # inspection + full OCR payload
+GET  /api/v1/inspections/{id}/image  # original upload (evidence viewer)
+POST /api/v1/analyze                 # computer-vision: multipart file → OCR result
+```
+
+Upload response example:
+
+```json
+{
+  "inspection_id": "LGA-2026-00001",
+  "status": "processed",
+  "filename": "label.jpg",
+  "document_type": "image",
+  "pages": 1,
+  "text_length": 842,
+  "blocks_detected": 74
+}
+```
+
+OCR blocks carry raw pixel coordinates against the processed page dimensions, numeric 0–100
+confidence from Tesseract, and reading-order text; the frontend overlays them responsively over
+the original image with a toggle.
+
+- **Tesseract in Docker:** the computer-vision image installs `tesseract-ocr` and
+  `poppler-utils` (PDF rasterization) on top of the Python/OpenCV stack — no host install needed.
+  For local (non-Docker) runs, install Tesseract + Poppler yourself and point
+  `TESSERACT_CMD`/`POPPLER_PATH` at them if they are not on `PATH`.
+- **Phase 2 models:** `Inspection` gains file/processing fields; `OCRDocument` and `OCRBlock`
+  store page-level results with proper foreign keys (Alembic migration `0002`).
 
 ---
 
@@ -48,7 +104,7 @@ Metrology requirements, and produces evidence-backed assessments for officer ver
 LabelGuard-AI/
 ├── frontend/          React + TypeScript + Vite + Tailwind (port 5173)
 ├── backend/           FastAPI orchestration + PostgreSQL (port 8000)
-├── computer-vision/   Label OCR / region detection skeleton (port 8001)
+├── computer-vision/   Preprocessing + Tesseract OCR service (port 8001)
 ├── ai/                Field extraction skeleton (port 8002)
 ├── legal-engine/      Compliance rule engine skeleton (port 8003)
 ├── docker-compose.yml
@@ -148,8 +204,8 @@ alembic upgrade head                                # apply all migrations
 alembic revision --autogenerate -m "initial schema" # create a new migration
 ```
 
-Phase 1 models: `Inspection` (with `uploaded → processing → completed / needs_review / failed`
-statuses), `Product` (nullable fields), and `AuditLog`.
+Phase 1 models: `Inspection`, `Product` (nullable fields), and `AuditLog`. Phase 2 extends
+`Inspection` with file/processing metadata and adds `OCRDocument` + `OCRBlock`.
 
 ## Health checks
 
@@ -183,8 +239,8 @@ Interactive docs for each service:
 
 | Phase | Scope                                                        | Status         |
 | ----- | ------------------------------------------------------------ | -------------- |
-| 1     | System foundation: services, health checks, PostgreSQL       | **Current**    |
-| 2     | Computer vision: label OCR and region detection              | Planned        |
+| 1     | System foundation: services, health checks, PostgreSQL       | Done           |
+| 2     | Computer vision: upload, preprocessing, OCR, bounding boxes  | **Current**    |
 | 3     | Inspection workflow and persistence                          | Planned        |
 | 4     | AI extraction and assessment                                 | Planned        |
 | 5     | Legal Metrology rule engine and compliance evaluation        | Planned        |

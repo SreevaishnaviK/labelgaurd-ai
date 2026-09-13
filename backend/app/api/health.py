@@ -1,4 +1,4 @@
-"""Health and system status endpoints."""
+"""Health and system status endpoints (Phase 1, unchanged)."""
 from fastapi import APIRouter
 
 import app.services.status as status_service

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import UploadFlow from "./components/UploadFlow";
+import OcrResultView from "./components/OcrResultView";
+import type { UploadSuccess } from "./types/api";
 import {
   Activity,
   AlertTriangle,
@@ -26,7 +29,7 @@ import {
 
 /* ---------------------------------- types --------------------------------- */
 
-type View = "dashboard" | "inspect" | "analyzing" | "results" | "reports" | "history";
+type View = "dashboard" | "inspect" | "analyzing" | "results" | "ocr-result" | "reports" | "history";
 type StatusTone = "compliant" | "review" | "violation";
 type UploadInfo = { name: string; size: number };
 
@@ -316,7 +319,7 @@ const NAV_LINKS: { id: View; label: string; icon: LucideIcon }[] = [
 ];
 
 function activeNavId(view: View): View {
-  if (view === "analyzing" || view === "results") return "inspect";
+  if (view === "analyzing" || view === "results" || view === "ocr-result") return "inspect";
   return view;
 }
 
@@ -788,12 +791,14 @@ const METRICS: { label: string; value: number; icon: LucideIcon }[] = [
 function DashboardView({
   upload,
   onFile,
+  onSample,
   onRun,
   onClear,
   onNavigate,
 }: {
   upload: UploadInfo | null;
   onFile: (file: File) => void;
+  onSample?: () => void;
   onRun: () => void;
   onClear: () => void;
   onNavigate: (view: View) => void;
@@ -855,7 +860,7 @@ function DashboardView({
           title="Inspect a Product"
           text="Upload product packaging or label images to begin an automated compliance inspection."
         />
-        <UploadCard upload={upload} onFile={onFile} onRun={onRun} onClear={onClear} />
+        <UploadCard upload={upload} onFile={onFile} onSample={onSample} onRun={onRun} onClear={onClear} />
         <DemoNote className="mt-3" />
       </section>
 
@@ -880,19 +885,11 @@ function DashboardView({
 /* --------------------------------- inspect --------------------------------- */
 
 function InspectView({
-  upload,
-  onFile,
-  onRun,
-  onClear,
-  onSample,
   onNavigate,
+  onOcrCompleted,
 }: {
-  upload: UploadInfo | null;
-  onFile: (file: File) => void;
-  onRun: () => void;
-  onClear: () => void;
-  onSample: () => void;
   onNavigate: (view: View) => void;
+  onOcrCompleted: (result: UploadSuccess) => void;
 }) {
   return (
     <div className="mx-auto max-w-7xl animate-fade-up px-4 pb-20 sm:px-6 lg:px-8">
@@ -901,40 +898,31 @@ function InspectView({
         <SectionHeader
           eyebrow="Product Inspection"
           title="Inspect a Product"
-          text="Upload product packaging or label images to begin an automated compliance inspection."
+          text="Upload a product label image or PDF. OCR extracts the visible text, its position, and confidence — compliance evaluation arrives in a later phase."
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-3">
-          <UploadCard
-            upload={upload}
-            onFile={onFile}
-            onRun={onRun}
-            onClear={onClear}
-            onSample={onSample}
-          />
+          <UploadFlow onCompleted={onOcrCompleted} />
           <DemoNote className="mt-3" />
         </div>
 
         <aside className="lg:col-span-2">
           <div className={cx(card, "p-6 sm:p-8")}>
             <h3 className="text-sm font-semibold tracking-[0.14em] text-brand-muted uppercase">
-              What the AI Checks
+              What OCR Reads
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-brand-muted">
-              Each inspection evaluates mandatory declarations under Legal Metrology / Packaged Commodities
-              requirements, including:
+              The computer vision pipeline reads every visible text region on the label and records where it sits:
             </p>
             <ul className="mt-5 space-y-3">
               {[
-                "Product name and principal display details",
-                "Manufacturer, packer and address details",
-                "Net quantity in the standard unit of measure",
-                "Declared retail sale price (MRP)",
-                "Date of manufacture or packing",
-                "Consumer care contact details",
-                "Category-specific mandatory declarations",
+                "Printed text lines with pixel bounding boxes",
+                "Per-block OCR confidence from the engine",
+                "Page dimensions for the processed document",
+                "Multi-page PDFs processed page by page",
+                "Full text assembled in natural reading order",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5 text-sm text-brand-dark">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-success" aria-hidden="true" />
@@ -942,8 +930,12 @@ function InspectView({
                 </li>
               ))}
             </ul>
+            <p className="mt-5 border-t border-brand-border pt-4 text-xs leading-relaxed text-brand-muted">
+              Field extraction and compliance analysis are not part of this phase — results show raw OCR evidence
+              only.
+            </p>
             <div className="mt-6 border-t border-brand-border pt-5">
-              <Pipeline activeStep={0} />
+              <Pipeline activeStep={2} />
             </div>
           </div>
         </aside>
@@ -1862,13 +1854,19 @@ function formatInspectionId(num: number) {
 }
 
 export default function App() {
-  const [view, setView] = useState<View>("dashboard");
+  // Persisted so a browser refresh on the OCR result screen can reload the
+  // inspection from the backend (acceptance test: refresh still shows results).
+  const [view, setView] = useState<View>(() =>
+    window.sessionStorage.getItem("labelguard.activeInspectionId") ? "ocr-result" : "dashboard",
+  );
   const [navOpen, setNavOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [upload, setUpload] = useState<UploadInfo | null>(null);
   const [analysisStep, setAnalysisStep] = useState(0);
   const [inspections, setInspections] = useState<InspectionRecord[]>(INSPECTIONS_SEED);
-  const [activeInspectionId, setActiveInspectionId] = useState<string | null>(null);
+  const [activeInspectionId, setActiveInspectionId] = useState<string | null>(
+    () => window.sessionStorage.getItem("labelguard.activeInspectionId"),
+  );
 
   const navigate = useCallback((next: View) => {
     setView(next);
@@ -1903,6 +1901,28 @@ export default function App() {
     navigate("inspect");
   }, [navigate]);
 
+  const handleOcrCompleted = useCallback(
+    (result: UploadSuccess) => {
+      setActiveInspectionId(result.inspection_id);
+      window.sessionStorage.setItem("labelguard.activeInspectionId", result.inspection_id);
+      // Track the real backend inspection in demo history too.
+      setInspections((rows) => [
+        {
+          id: result.inspection_id,
+          product: result.filename,
+          manufacturer: "—",
+          inspector: "OCR pipeline",
+          date: new Date().toISOString().slice(0, 10),
+          score: 0,
+          status: "review",
+        },
+        ...rows,
+      ]);
+      navigate("ocr-result");
+    },
+    [navigate],
+  );
+
   const completeInspection = useCallback(() => {
     // Allocate the next ID from the records themselves — no duplicate IDs possible.
     const maxNum = Math.max(124, ...inspections.map((r) => Number.parseInt(r.id.slice(-5), 10)));
@@ -1920,6 +1940,7 @@ export default function App() {
       ...rows,
     ]);
     setActiveInspectionId(id);
+    window.sessionStorage.setItem("labelguard.activeInspectionId", id);
     navigate("results");
   }, [inspections, navigate]);
 
@@ -1949,22 +1970,17 @@ export default function App() {
           <DashboardView
             upload={upload}
             onFile={handleFile}
-            onRun={handleRun}
-            onClear={handleClearUpload}
-            onNavigate={navigate}
-          />
-        )}
-        {view === "inspect" && (
-          <InspectView
-            upload={upload}
-            onFile={handleFile}
-            onRun={handleRun}
-            onClear={handleClearUpload}
             onSample={handleSample}
+            onRun={handleRun}
+            onClear={handleClearUpload}
             onNavigate={navigate}
           />
         )}
+        {view === "inspect" && <InspectView onNavigate={navigate} onOcrCompleted={handleOcrCompleted} />}
         {view === "analyzing" && <AnalyzingView fileName={upload?.name ?? null} step={analysisStep} />}
+        {view === "ocr-result" && activeInspectionId && (
+          <OcrResultView inspectionId={activeInspectionId} onNavigate={() => navigate("dashboard")} />
+        )}
         {view === "results" && (
           <ResultsView
             inspectionId={activeInspectionId ?? "LGA-2026-00124"}

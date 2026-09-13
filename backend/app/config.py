@@ -18,9 +18,18 @@ class Settings(BaseSettings):
     ai_service_url: str = "http://localhost:8002"
     legal_engine_url: str = "http://localhost:8003"
 
+    # Uploads
+    upload_dir: str = "uploads"
+    max_upload_size_mb: int = 20
+    cv_timeout_seconds: int = 60
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def max_upload_size_bytes(self) -> int:
+        return self.max_upload_size_mb * 1024 * 1024
 
 
 @lru_cache
