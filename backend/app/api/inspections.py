@@ -7,9 +7,18 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.inspection import InspectionOut, OCRBlockOut, OCRPageOut, UploadSuccess
+from app.schemas.inspection import (
+    ExtractionEvidenceOut,
+    ExtractionOut,
+    ExtractedFieldOut,
+    FieldCandidateOut,
+    InspectionOut,
+    OCRBlockOut,
+    OCRPageOut,
+    UploadSuccess,
+)
 from app.services import inspection_service
-from app.services.inspection_service import average_confidence
+from app.services.inspection_service import average_confidence, get_extracted_fields
 
 router = APIRouter(prefix="/api/v1/inspections")
 
@@ -58,6 +67,27 @@ def _to_out(inspection, session: Session) -> InspectionOut:
         )
         for block in sorted(inspection.ocr_blocks, key=lambda b: (b.page_number, b.id))
     ]
+    extraction = [
+        ExtractedFieldOut(
+            field_name=field.field_name,
+            status=field.status,
+            value=field.value_json,
+            raw_text=field.raw_text,
+            ocr_confidence=float(field.ocr_confidence) if field.ocr_confidence is not None else None,
+            extraction_confidence=(
+                float(field.extraction_confidence) if field.extraction_confidence is not None else None
+            ),
+            method=field.method,
+            evidence=[
+                ExtractionEvidenceOut(ocr_block_id=ref.ocr_block_id, page_number=ref.page_number)
+                for ref in field.evidence
+            ],
+            candidates=(
+                [FieldCandidateOut(**c) for c in field.candidates_json] if field.candidates_json else None
+            ),
+        )
+        for field in get_extracted_fields(session, inspection)
+    ]
     return InspectionOut(
         inspection_id=inspection.inspection_id,
         status=inspection.processing_status.value,
@@ -73,6 +103,7 @@ def _to_out(inspection, session: Session) -> InspectionOut:
             "blocks_detected": len(blocks),
             "average_confidence": average_confidence(session, inspection.id),
         },
+        extraction=ExtractionOut(fields=extraction),
     )
 
 

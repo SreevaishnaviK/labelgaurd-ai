@@ -1,19 +1,31 @@
 """AI service API routes."""
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from app.schemas.extraction import PlaceholderResponse
+from app.extraction.extractor import get_field_extractor
+from app.schemas.extraction import ExtractRequest, ExtractSuccess, HealthOut
 
 router = APIRouter()
 
 
 @router.get("/health")
-def health() -> dict:
-    return {"status": "ok", "service": "LabelGuard AI AI Service"}
+def health() -> HealthOut:
+    return HealthOut(status="ok", service="LabelGuard AI AI Service")
 
 
-@router.post("/api/v1/extract", response_model=PlaceholderResponse)
-def extract() -> PlaceholderResponse:
-    return PlaceholderResponse(
-        status="not_implemented",
-        message="AI extraction will be implemented in Phase 4.",
-    )
+@router.post("/api/v1/extract")
+def extract(request: ExtractRequest) -> ExtractSuccess:
+    """Structured field extraction over OCR output — never a legal judgment."""
+    if not request.pages:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "NO_PAGES", "message": "At least one OCR page is required."},
+        )
+    try:
+        extractor = get_field_extractor()
+        fields = extractor.extract_fields(request.pages)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "EXTRACTOR_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+    return ExtractSuccess(status="success", inspection_id=request.inspection_id, fields=fields)

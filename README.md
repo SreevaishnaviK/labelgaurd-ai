@@ -5,11 +5,13 @@ AI-powered compliance inspection for packaged commodity labels. **Analyze. Verif
 LabelGuard AI inspects packaged-commodity labels, extracts declared information, evaluates Legal
 Metrology requirements, and produces evidence-backed assessments for officer verification.
 
-> **Status: Phase 2 — Computer Vision / OCR.** Upload a real label and the backend stores the
-> original, runs preprocessing + Tesseract OCR in the computer-vision service, persists pages,
-> blocks, confidences, and pixel bounding boxes in PostgreSQL, and serves them back for display.
-> AI field extraction and Legal Metrology rules arrive in later phases — nothing here fabricates
-> results or judges compliance.
+> **Status: Phase 3 — Structured Information Extraction.** Upload a real label and the backend
+> stores the original, runs preprocessing + Tesseract OCR in the computer-vision service, then
+> sends the OCR output (never the image) to the AI service for deterministic field extraction.
+> Structured fields — with detected/not_detected/ambiguous status, separate OCR and extraction
+> confidence, and evidence references back to OCR blocks — persist in PostgreSQL and drive the
+> frontend's Structured Information panel. Legal Metrology rules and compliance scoring arrive
+> in later phases — nothing here fabricates results or judges compliance.
 
 ## Phase 2 — OCR pipeline
 
@@ -65,6 +67,36 @@ the original image with a toggle.
   absent.
 - **Phase 2 models:** `Inspection` gains file/processing fields; `OCRDocument` and `OCRBlock`
   store page-level results with proper foreign keys (Alembic migration `0002`).
+
+## Phase 3 — Structured information extraction
+
+```text
+OCR persisted (Phase 2)
+  → backend assembles OCR pages (text + confidence + bboxes, never the image)
+  → POST /api/v1/extract (ai service, http://ai:8002)
+      DeterministicFieldExtractor (rule-based, no LLM, no network, no API keys)
+      — 23 fields: product name, manufacturer/packer/importer + addresses,
+        net quantity, MRP, dates, batch/lot, consumer care contacts, origin,
+        ingredients, veg/non-veg declaration
+      — statuses: detected | not_detected | ambiguous (ambiguous is never resolved)
+  → ExtractedField + ExtractedFieldEvidence persisted (Alembic migration 0004)
+  → GET /api/v1/inspections/{id} now returns `extraction.fields` alongside `ocr`
+  → frontend Structured Information panel: value, status, confidences, and an
+    Evidence button that highlights the referenced OCR block on the label
+```
+
+- **Evidence linking:** every field references existing OCR block IDs — coordinates are never
+  duplicated. Clicking a field's evidence highlights its block in the existing bbox overlay.
+- **No compliance leakage:** the AI service only reports what text *represents*. Words like
+  compliant, violation, or score appear nowhere in extraction output; missing fields display
+  "Not detected", never "Violation".
+- **Extensibility:** `BaseFieldExtractor` is the contract; `DeterministicFieldExtractor` ships
+  today and an LLM-backed extractor can be added later behind the same API (config-selected).
+- **Key APIs added:**
+
+```http
+POST /api/v1/extract                # ai service: OCR pages in → structured fields out
+```
 
 ---
 

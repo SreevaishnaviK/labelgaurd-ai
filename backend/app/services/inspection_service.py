@@ -4,6 +4,7 @@ Owns the Phase 2 upload flow: validation → storage of the original → CV
 orchestration → OCR persistence → status tracking. API routes stay thin;
 all database access lives here.
 """
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -13,10 +14,15 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.clients import computer_vision_client
+logger = logging.getLogger(__name__)
+
+from app.clients import ai_client, computer_vision_client
+from app.clients.ai_client import AIServiceError
 from app.clients.computer_vision_client import CVRejectionError, CVServiceError
 from app.config import get_settings
 from app.models.inspection import (
+    ExtractedField,
+    ExtractedFieldEvidence,
     Inspection,
     InspectionStatus,
     OCRBlock,
@@ -73,6 +79,89 @@ def _next_inspection_id(session: Session) -> str:
         if match:
             max_num = max(max_num, int(match.group(1)))
     return f"LGA-{year}-{max_num + 1:05d}"
+
+
+def _extraction_pages(inspection: Inspection, session: Session) -> list[dict]:
+    """Build the AI service's OCR input from persisted rows (never the image)."""
+    pages = []
+    for doc in sorted(inspection.ocr_documents, key=lambda d: d.page_number):
+        blocks = sorted(
+            [b for b in inspection.ocr_blocks if b.page_number == doc.page_number],
+            key=lambda b: b.id,
+        )
+        pages.append(
+            {
+                "page_number": doc.page_number,
+                "width": doc.width,
+                "height": doc.height,
+                "full_text": doc.full_text or "",
+                "blocks": [
+                    {
+                        "id": b.block_id,
+                        "text": b.text,
+                        "confidence": float(b.confidence),
+                        "page_number": b.page_number,
+                        "bbox": {"x": b.x, "y": b.y, "width": b.width, "height": b.height},
+                    }
+                    for b in blocks
+                ],
+            }
+        )
+    return pages
+
+
+def run_extraction(session: Session, inspection: Inspection) -> None:
+    """Call the AI service over stored OCR and persist the structured fields.
+
+    AI failures leave the inspection processed-without-extraction; nothing is
+    fabricated. Re-extraction replaces previous fields (update path).
+    """
+    if get_settings().ai_enabled:
+        try:
+            result = ai_client.extract_fields(
+                inspection_id=inspection.inspection_id,
+                pages=_extraction_pages(inspection, session),
+            )
+        except AIServiceError as exc:
+            logger.warning("AI extraction failed for %s: %s", inspection.inspection_id, exc.message)
+            return
+        for field in session.execute(
+            select(ExtractedField).where(ExtractedField.inspection_id == inspection.id)
+        ).scalars():
+            session.delete(field)
+        for item in result.fields:
+            field = ExtractedField(
+                inspection=inspection,
+                field_name=item["field_name"],
+                status=item["status"],
+                value_json=item.get("value"),
+                candidates_json=item.get("candidates"),
+                raw_text=item.get("raw_text"),
+                ocr_confidence=item.get("ocr_confidence"),
+                extraction_confidence=item.get("extraction_confidence"),
+                method=item.get("method", "deterministic"),
+            )
+            session.add(field)
+            session.flush()  # assign field.id before evidence rows
+            for ref in item.get("evidence", []):
+                session.add(
+                    ExtractedFieldEvidence(
+                        extracted_field=field,
+                        ocr_block_id=ref["ocr_block_id"],
+                        page_number=ref.get("page_number", 1),
+                    )
+                )
+
+
+def get_extracted_fields(session: Session, inspection: Inspection) -> list[ExtractedField]:
+    """Persisted extraction for retrieval (empty list when none)."""
+    return list(
+        session.execute(
+            select(ExtractedField)
+            .where(ExtractedField.inspection_id == inspection.id)
+            .order_by(ExtractedField.id)
+        ).scalars()
+    )
 
 
 def _store_original(inspection_id: str, data: bytes, extension: str) -> tuple[Path, str, str]:
@@ -172,6 +261,15 @@ def create_inspection_from_upload(file: UploadFile, session: Session) -> Inspect
         session.commit()
         path.unlink(missing_ok=True)  # cleanup on persistence failure
         raise _fail(502, "OCR_STORAGE_FAILURE", "Could not persist OCR results.") from exc
+
+    # Phase 3: structured extraction over the stored OCR. AI outages do not
+    # fail the upload — the inspection stays processed, extraction just empty.
+    try:
+        run_extraction(session, inspection)
+        session.commit()
+    except SQLAlchemyError as exc:
+        session.rollback()
+        logger.warning("Extraction persistence failed for %s", inspection.inspection_id, exc_info=exc)
 
     return inspection
 

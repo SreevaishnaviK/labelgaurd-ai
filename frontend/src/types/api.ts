@@ -35,6 +35,30 @@ export type FileMeta = {
 
 export type InspectionStatus = "uploaded" | "processing" | "processed" | "failed";
 
+export type FieldStatus = "detected" | "not_detected" | "ambiguous";
+
+export type ExtractionEvidence = {
+  ocr_block_id: string;
+  page_number: number;
+};
+
+export type FieldCandidate = {
+  raw_text: string | null;
+  value: Record<string, unknown> | null;
+};
+
+export type ExtractedField = {
+  field_name: string;
+  status: FieldStatus;
+  value: Record<string, unknown> | null;
+  raw_text: string | null;
+  ocr_confidence: number | null;
+  extraction_confidence: number | null;
+  method: string;
+  evidence: ExtractionEvidence[];
+  candidates: FieldCandidate[] | null;
+};
+
 export type Inspection = {
   inspection_id: string;
   status: InspectionStatus;
@@ -46,6 +70,9 @@ export type Inspection = {
     full_text: string;
     blocks_detected: number;
     average_confidence: number;
+  };
+  extraction: {
+    fields: ExtractedField[];
   };
 };
 

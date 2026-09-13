@@ -62,12 +62,45 @@ class OCRRetrieval(BaseModel):
     average_confidence: float
 
 
+class ExtractionEvidenceOut(BaseModel):
+    """Reference to existing OCR blocks — no coordinate duplication."""
+
+    ocr_block_id: str
+    page_number: int
+
+
+class FieldCandidateOut(BaseModel):
+    """One plausible reading of an ambiguous field."""
+
+    raw_text: str | None = None
+    value: dict | None = None
+
+
+class ExtractedFieldOut(BaseModel):
+    """One structured field: extraction result, never a legal judgment."""
+
+    field_name: str
+    status: str
+    value: dict | None = None
+    raw_text: str | None = None
+    ocr_confidence: float | None = None
+    extraction_confidence: float | None = None
+    method: str
+    evidence: list[ExtractionEvidenceOut] = []
+    candidates: list[FieldCandidateOut] | None = None
+
+
+class ExtractionOut(BaseModel):
+    fields: list[ExtractedFieldOut]
+
+
 class InspectionOut(BaseModel):
     inspection_id: str
     status: str
     created_at: datetime
     file: FileMeta
     ocr: OCRRetrieval
+    extraction: ExtractionOut
 
 
 class UploadErrorResponse(BaseModel):

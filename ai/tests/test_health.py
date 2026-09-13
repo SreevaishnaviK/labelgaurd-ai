@@ -1,4 +1,4 @@
-"""AI service tests."""
+"""AI service health and extract contract tests."""
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -12,9 +12,33 @@ def test_health() -> None:
     assert response.json() == {"status": "ok", "service": "LabelGuard AI AI Service"}
 
 
-def test_extract_placeholder() -> None:
-    response = client.post("/api/v1/extract")
+def test_extract_requires_pages() -> None:
+    response = client.post("/api/v1/extract", json={"inspection_id": "LGA-2026-00001", "pages": []})
+    assert response.status_code == 422
+
+
+def test_extract_returns_full_field_set() -> None:
+    response = client.post(
+        "/api/v1/extract",
+        json={
+            "inspection_id": "LGA-2026-00001",
+            "pages": [
+                {
+                    "page_number": 1,
+                    "width": 800,
+                    "height": 400,
+                    "full_text": "nothing useful",
+                    "blocks": [{"id": "block_001", "text": "nothing useful", "confidence": 50.0}],
+                }
+            ],
+        },
+    )
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "not_implemented"
-    assert "Phase 4" in body["message"]
+    assert body["status"] == "success"
+    assert body["inspection_id"] == "LGA-2026-00001"
+    names = [field["field_name"] for field in body["fields"]]
+    assert len(names) == 23 and len(set(names)) == 23  # full stable field set
+    for field in body["fields"]:
+        assert field["status"] in ("detected", "not_detected", "ambiguous")
+        assert field["method"] == "deterministic"

@@ -1,21 +1,194 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   Check,
   Copy,
+  Crosshair,
   Eye,
   EyeOff,
   FileText,
   Loader2,
 } from "lucide-react";
 import { fetchInspection, inspectionImageUrl } from "../lib/inspections";
-import type { Inspection, OCRBlock } from "../types/api";
+import type { ExtractedField, Inspection, OCRBlock } from "../types/api";
 
 const btnPrimary =
   "inline-flex items-center justify-center gap-2 rounded-lg bg-brand-dark px-5 py-2.5 text-sm font-medium text-brand-white transition-colors hover:bg-brand-green";
 const btnSecondary =
   "inline-flex items-center justify-center gap-2 rounded-lg border border-brand-border bg-brand-white px-5 py-2.5 text-sm font-medium text-brand-dark transition-colors hover:border-brand-green/40 hover:bg-brand-light";
+
+const FIELD_LABELS: Record<string, string> = {
+  product_name: "Product Name",
+  manufacturer: "Manufacturer",
+  packer: "Packer",
+  importer: "Importer",
+  manufacturer_address: "Manufacturer Address",
+  packer_address: "Packer Address",
+  importer_address: "Importer Address",
+  net_quantity: "Net Quantity",
+  mrp: "MRP",
+  manufacturing_date: "Manufacturing Date",
+  packing_date: "Packing Date",
+  best_before: "Best Before",
+  use_by: "Use By",
+  expiry_date: "Expiry Date",
+  consumer_care: "Consumer Care",
+  customer_care_phone: "Customer Care Phone",
+  customer_care_email: "Customer Care Email",
+  website: "Website",
+  batch_number: "Batch Number",
+  lot_number: "Lot Number",
+  country_of_origin: "Country of Origin",
+  ingredients: "Ingredients",
+  vegetarian_non_vegetarian: "Vegetarian / Non-Vegetarian",
+};
+
+function formatValue(field: ExtractedField): string | null {
+  const value = field.value;
+  if (!value) return null;
+  if (field.field_name === "mrp" && typeof value.amount === "number") {
+    return `₹${value.amount.toFixed(2)}`;
+  }
+  if (field.field_name === "net_quantity") {
+    return `${value.value} ${value.unit}`;
+  }
+  if (field.field_name === "vegetarian_non_vegetarian") {
+    return value.declaration === "vegetarian" ? "Vegetarian" : "Non-Vegetarian";
+  }
+  const text = Object.values(value).find((part) => typeof part === "string" && part.length > 0);
+  return typeof text === "string" ? text : null;
+}
+
+function FieldCard({
+  field,
+  blocksById,
+  isActive,
+  onSelectBlock,
+}: {
+  field: ExtractedField;
+  blocksById: Map<string, OCRBlock>;
+  isActive: boolean;
+  onSelectBlock: (block: OCRBlock | null) => void;
+}) {
+  const value = formatValue(field);
+  const isAmbiguous = field.status === "ambiguous";
+  const isDetected = field.status === "detected";
+  const evidenceBlock = field.evidence.length ? blocksById.get(field.evidence[0].ocr_block_id) ?? null : null;
+
+  return (
+    <div
+      className={`rounded-xl border p-4 transition-colors ${
+        isActive
+          ? "border-brand-green bg-brand-green/5"
+          : "border-brand-border bg-brand-cream"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold tracking-[0.14em] text-brand-muted uppercase">
+          {FIELD_LABELS[field.field_name] ?? field.field_name}
+        </p>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+            isDetected
+              ? "bg-brand-green/10 text-brand-green"
+              : isAmbiguous
+                ? "bg-amber-500/10 text-amber-600"
+                : "bg-brand-muted/10 text-brand-muted"
+          }`}
+        >
+          {isDetected ? "Detected" : isAmbiguous ? "Needs review" : "Not detected"}
+        </span>
+      </div>
+
+      {isAmbiguous ? (
+        <div className="mt-2">
+          <p className="text-sm font-medium text-brand-dark">Multiple possible values detected</p>
+          <ul className="mt-1 space-y-0.5">
+            {field.candidates?.map((candidate, index) => (
+              <li key={index} className="text-xs text-brand-muted">
+                Candidate {index + 1}: {candidate.raw_text ?? JSON.stringify(candidate.value)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : value ? (
+        <p className="mt-2 text-sm font-medium break-words text-brand-dark">{value}</p>
+      ) : (
+        <p className="mt-2 text-sm text-brand-muted">Not detected</p>
+      )}
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="font-mono text-[10px] text-brand-muted">
+          {field.extraction_confidence != null && `extraction ${field.extraction_confidence}%`}
+          {field.extraction_confidence != null && field.ocr_confidence != null && " · "}
+          {field.ocr_confidence != null && `ocr ${field.ocr_confidence}%`}
+        </p>
+        {evidenceBlock && (
+          <button
+            type="button"
+            onClick={() => onSelectBlock(isActive ? null : evidenceBlock)}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-brand-green transition-colors hover:bg-brand-green/10"
+            aria-label={`Highlight OCR evidence for ${FIELD_LABELS[field.field_name] ?? field.field_name}`}
+          >
+            <Crosshair className="h-3 w-3" aria-hidden="true" />
+            Evidence
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StructuredInformation({
+  fields,
+  blocks,
+  activeBlock,
+  onSelectBlock,
+}: {
+  fields: ExtractedField[];
+  blocks: OCRBlock[];
+  activeBlock: OCRBlock | null;
+  onSelectBlock: (block: OCRBlock | null) => void;
+}) {
+  const blocksById = useMemo(() => new Map(blocks.map((b) => [b.block_id, b])), [blocks]);
+  const activeEvidenceField = activeBlock
+    ? fields.find((field) => field.evidence.some((ref) => ref.ocr_block_id === activeBlock.block_id))
+    : undefined;
+
+  if (fields.length === 0) {
+    return (
+      <section className="mt-6 rounded-2xl border border-brand-border bg-brand-white p-6">
+        <h2 className="text-lg font-medium text-brand-dark">Structured Information</h2>
+        <p className="mt-2 text-sm text-brand-muted">
+          Structured extraction is unavailable for this inspection.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 rounded-2xl border border-brand-border bg-brand-white p-6" aria-labelledby="fields-heading">
+      <h2 id="fields-heading" className="text-lg font-medium text-brand-dark">
+        Structured Information
+      </h2>
+      <p className="mt-1 text-sm text-brand-muted">
+        Fields read from the OCR text. Click a field's evidence to highlight it on the label.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {fields.map((field) => (
+          <FieldCard
+            key={field.field_name}
+            field={field}
+            blocksById={blocksById}
+            isActive={activeEvidenceField?.field_name === field.field_name}
+            onSelectBlock={onSelectBlock}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function SummaryMetric({ label, value }: { label: string; value: string }) {
   return (
@@ -31,13 +204,14 @@ function ImageEvidence({
   activeBlock,
   onSelectBlock,
   showBoxes,
+  overlayRef,
 }: {
   inspection: Inspection;
   activeBlock: OCRBlock | null;
   onSelectBlock: (block: OCRBlock | null) => void;
   showBoxes: boolean;
+  overlayRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const page = inspection.ocr.pages[0];
   const url = inspectionImageUrl(inspection.inspection_id);
 
@@ -46,12 +220,13 @@ function ImageEvidence({
   // the original image — they are hidden with an explanatory note instead.
   const warped = page?.warped ?? false;
 
-  // Resize-only pages: map processed-page coordinates onto the original by
-  // aspect ratio (uniform scale in each axis; aspect is preserved).
-  const scale = useMemo(() => {
-    if (warped || !naturalSize || !page || page.width === 0 || page.height === 0) return null;
-    return { x: naturalSize.width / page.width, y: naturalSize.height / page.height };
-  }, [warped, naturalSize, page]);
+  // Resize-only pages: original and processed share proportions, so bboxes are
+  // placed as percentages of the page dimensions — they then track the
+  // <img> at any rendered size, and an image whose pixels were downscaled by
+  // the server (e.g. huge photos) still lines up exactly.
+  const usable = Boolean(page && page.width > 0 && page.height > 0 && !warped);
+  const pageWidth = page?.width ?? 1;
+  const pageHeight = page?.height ?? 1;
 
   return (
     <div className="relative inline-block">
@@ -59,13 +234,9 @@ function ImageEvidence({
         src={url}
         alt={`Original uploaded label for inspection ${inspection.inspection_id}`}
         className="max-h-[560px] w-auto max-w-full rounded-lg border border-brand-border bg-white"
-        onLoad={(event) => {
-          const img = event.currentTarget;
-          setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
-        }}
       />
-      {showBoxes && scale && !warped && (
-        <div className="absolute inset-0" aria-hidden="true">
+      {showBoxes && usable && (
+        <div ref={overlayRef} className="absolute inset-0">
           {inspection.ocr.blocks.map((block) => {
             const isActive = activeBlock?.block_id === block.block_id;
             return (
@@ -80,10 +251,10 @@ function ImageEvidence({
                     : "border-brand-green/50 bg-brand-green/5 hover:bg-brand-green/15"
                 }`}
                 style={{
-                  left: `${block.bbox.x * scale.x}px`,
-                  top: `${block.bbox.y * scale.y}px`,
-                  width: `${block.bbox.width * scale.x}px`,
-                  height: `${block.bbox.height * scale.y}px`,
+                  left: `${(block.bbox.x / pageWidth) * 100}%`,
+                  top: `${(block.bbox.y / pageHeight) * 100}%`,
+                  width: `${(block.bbox.width / pageWidth) * 100}%`,
+                  height: `${(block.bbox.height / pageHeight) * 100}%`,
                 }}
               />
             );
@@ -100,6 +271,15 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
   const [showBoxes, setShowBoxes] = useState(true);
   const [activeBlock, setActiveBlock] = useState<OCRBlock | null>(null);
   const [copied, setCopied] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  const toggleBoxes = () => {
+    // Hiding the overlay must not strand focus inside an aria-hidden subtree.
+    if (showBoxes && overlayRef.current?.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement).blur();
+    }
+    setShowBoxes((value) => !value);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -183,7 +363,7 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
             </h2>
             <button
               type="button"
-              onClick={() => setShowBoxes((value) => !value)}
+              onClick={toggleBoxes}
               className={btnSecondary}
               aria-pressed={showBoxes}
             >
@@ -196,6 +376,7 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
             activeBlock={activeBlock}
             onSelectBlock={setActiveBlock}
             showBoxes={showBoxes}
+            overlayRef={overlayRef}
           />
 
           {inspection.ocr.pages[0]?.warped && (
@@ -260,6 +441,13 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
           </p>
         </section>
       </div>
+
+      <StructuredInformation
+        fields={inspection.extraction.fields}
+        blocks={ocr.blocks}
+        activeBlock={activeBlock}
+        onSelectBlock={setActiveBlock}
+      />
     </div>
   );
 }

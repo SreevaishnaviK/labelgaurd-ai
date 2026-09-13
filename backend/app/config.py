@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 20
     cv_timeout_seconds: int = 60
 
+    # AI extraction
+    ai_enabled: bool = True
+    ai_timeout_seconds: int = 60
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
