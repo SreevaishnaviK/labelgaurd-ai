@@ -57,6 +57,10 @@ export type ExtractionEvidence = {
 export type FieldCandidate = {
   raw_text: string | null;
   value: Record<string, unknown> | null;
+  /** Provenance of this reading (Phase 4): deterministic | ai_assisted. */
+  method: string;
+  confidence: number | null;
+  evidence: ExtractionEvidence[];
 };
 
 export type ExtractedField = {
@@ -66,6 +70,10 @@ export type ExtractedField = {
   raw_text: string | null;
   ocr_confidence: number | null;
   extraction_confidence: number | null;
+  /** Phase 4 provenance: the AI provider's own confidence (null when pure
+   * deterministic) and how the final value was settled. */
+  ai_confidence: number | null;
+  resolution_status: string | null;
   method: string;
   evidence: ExtractionEvidence[];
   candidates: FieldCandidate[] | null;
@@ -96,6 +104,16 @@ export type UploadSuccess = {
   pages: number;
   text_length: number;
   blocks_detected: number;
+};
+
+export type SystemStatus = {
+  backend: string;
+  database: string;
+  computer_vision: string;
+  ai: string;
+  legal_engine: string;
+  /** AI extraction provider name: none | mock | openai | unknown. */
+  ai_provider: string;
 };
 
 export type ApiErrorDetail = {

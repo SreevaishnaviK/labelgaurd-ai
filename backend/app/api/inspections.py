@@ -77,13 +77,31 @@ def _to_out(inspection, session: Session) -> InspectionOut:
             extraction_confidence=(
                 float(field.extraction_confidence) if field.extraction_confidence is not None else None
             ),
+            ai_confidence=float(field.ai_confidence) if field.ai_confidence is not None else None,
+            resolution_status=field.resolution_status,
             method=field.method,
             evidence=[
                 ExtractionEvidenceOut(ocr_block_id=ref.ocr_block_id, page_number=ref.page_number)
                 for ref in field.evidence
             ],
             candidates=(
-                [FieldCandidateOut(**c) for c in field.candidates_json] if field.candidates_json else None
+                [
+                    FieldCandidateOut(
+                        raw_text=c.get("raw_text"),
+                        value=c.get("value"),
+                        method=c.get("method", "deterministic"),
+                        confidence=c.get("confidence"),
+                        evidence=[
+                            ExtractionEvidenceOut(
+                                ocr_block_id=ref["ocr_block_id"],
+                                page_number=ref.get("page_number", 1),
+                            )
+                            for ref in (c.get("evidence") or [])
+                        ],
+                    )
+                    for c in inspection_service._candidate_outs(field)
+                ]
+                or None
             ),
         )
         for field in get_extracted_fields(session, inspection)

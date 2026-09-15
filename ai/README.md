@@ -1,85 +1,85 @@
-# LabelGuard AI — AI Service (Phase 3)
+# LabelGuard AI — AI Service
 
-Structured information extraction over OCR output. Receives OCR pages
-(never images), returns one structured field per known field with statuses,
-confidences, and evidence references back to OCR block IDs.
+Structured information extraction over OCR output (Phases 3–4). This service
+answers **"what does the OCR text represent?"** — it never makes legal or
+compliance judgments (that is the Legal Engine's job, in a later phase).
 
-Deterministic and offline: **no LLM, no API keys, no internet access
-required.** An LLM-backed extractor can be added later behind the same API
-contract. This service never makes legal or compliance judgments — no
-compliance scoring, no Legal Metrology rules (those belong to the legal
-engine, in a later phase).
-
-## Structure
-
-```text
+```
 ai/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py                  # FastAPI app; CORS; includes the API routers
-│   ├── config.py                # env settings (extractor selection, confidence floor)
+│   ├── main.py                  # FastAPI app
+│   ├── config.py                # env-driven settings
 │   ├── api/
-│   │   ├── __init__.py
-│   │   └── health.py            # GET /health and POST /api/v1/extract
-│   │                            # (the extract route lives here, not in a
-│   │                            #  separate extract.py — one small router file)
+│   │   └── health.py            # GET /health + POST /api/v1/extract
 │   ├── extraction/
-│   │   ├── __init__.py
-│   │   ├── base.py              # BaseFieldExtractor contract
-│   │   ├── deterministic.py     # DeterministicFieldExtractor (all fields)
-│   │   ├── extractor.py         # get_field_extractor(): config → implementation
-│   │   └── normalization.py     # currency / units / phone / email / URL normalizers
+│   │   ├── base.py              # BaseFieldExtractor + FIELD_NAMES (source of truth)
+│   │   ├── deterministic.py     # rule-based extractor (Phase 3)
+│   │   ├── candidates.py        # deterministic results → AI candidate payload
+│   │   ├── merger.py            # deterministic + AI merge policy (Phase 4)
+│   │   ├── orchestrator.py      # modes, gating, validation, fallback (Phase 4)
+│   │   ├── extractor.py         # extractor registry (config-selected)
+│   │   └── normalization.py     # currency / unit / date / contact normalizers
+│   ├── providers/
+│   │   ├── base.py              # BaseAIProvider contract
+│   │   ├── mock_provider.py     # scripted provider for tests/demos
+│   │   ├── openai_provider.py   # all OpenAI-specific code (Phase 4)
+│   │   └── __init__.py          # provider registry (AI_PROVIDER)
+│   ├── prompts/
+│   │   ├── extraction_system.py # strict no-hallucination system prompt
+│   │   └── extraction_user.py   # OCR + candidates as compact JSON
 │   ├── schemas/
-│   │   ├── __init__.py
-│   │   └── extraction.py        # request/response pydantic models
+│   │   └── extraction.py        # request/response/strict AI-output schemas
 │   └── utils/
-│       ├── __init__.py
-│       └── text.py              # reading-order sorting helpers
-├── tests/
-├── requirements.txt
-└── Dockerfile
+│       └── text.py              # block ordering helpers
+└── tests/
 ```
 
 ## API
 
-```http
-GET  /health            # liveness: {"status": "ok", "service": ...}
-POST /api/v1/extract    # OCR pages in → structured fields out
-```
+- `GET /health` — status plus the provider NAME only (never keys/secrets).
+- `POST /api/v1/extract` — structured field extraction. Note: the extract
+  route lives in `api/health.py` (the service's single router module), not in
+  a separate `api/extract.py`.
 
-`POST /api/v1/extract` request/response shapes are documented in
-`app/schemas/extraction.py` and served at `/docs` (Swagger UI).
+Request modes:
 
-## Fields
+| mode            | behavior                                          |
+| --------------- | ------------------------------------------------- |
+| `auto` (default)| deterministic first → AI only where useful        |
+| `deterministic` | rules only; a configured provider is never called |
+| `ai_assisted`   | AI reviews every field (when configured)          |
 
-24 fields, always the full set (undetected fields are reported, never
-omitted): product_name, manufacturer, packer, importer, marketer,
-manufacturer/packer/importer addresses, net_quantity, mrp,
-manufacturing_date, packing_date, best_before, use_by, expiry_date,
-consumer_care, customer_care_phone, customer_care_email, website,
-batch_number, lot_number, country_of_origin, ingredients,
-vegetarian_non_vegetarian.
+## Providers (Phase 4)
 
-Every field carries:
+`AI_PROVIDER` selects the AI-assisted layer:
 
-- `status`: `detected` | `not_detected` | `ambiguous` — ambiguous candidates
-  are surfaced, never silently resolved
-- `value`: normalized structured value (raw text is preserved alongside)
-- `ocr_confidence`: mean OCR confidence of the evidence blocks ("was the
-  text read correctly?")
-- `extraction_confidence`: confidence that the matched text represents this
-  field ("does this text mean this field?") — deliberately kept separate
-  from OCR confidence
-- `evidence`: `[{"ocr_block_id", "page_number"}]` references to existing OCR
-  blocks — coordinates are never duplicated here
+- `none` (default) — deterministic extraction only; **no API key required**.
+- `mock` — scripted provider for tests/offline demos.
+- `openai` — real provider; every OpenAI detail is isolated in
+  `providers/openai_provider.py` and reads `OPENAI_API_KEY` / `OPENAI_MODEL`
+  from the environment. Failures, timeouts, malformed JSON, unknown field
+  names, and invented (evidence-free) fields all degrade safely to
+  deterministic extraction (`deterministic_fallback`), never failing the
+  inspection.
 
-## Running
+Gating: in `auto` mode AI is consulted only when deterministic extraction is
+ambiguous or below `AI_MIN_DETERMINISTIC_CONFIDENCE` (default 85) — a clean,
+confident read never triggers a provider call. Conflicts between
+deterministic and AI readings become explicit ambiguous fields with both
+candidates preserved (methods attached), never silently overwritten.
+
+## Field contract
+
+Every field reports `status` ∈ `detected | not_detected | ambiguous`,
+`method` ∈ `deterministic | ai_assisted | deterministic_fallback`, separate
+`ocr_confidence` / `extraction_confidence` / `ai_confidence`, and evidence
+referencing existing OCR block IDs (coordinates are never duplicated).
+`FIELD_NAMES` in `app/extraction/base.py` is the single source of truth for
+the 24-field set; AI fields outside it are rejected as hallucinations.
+
+## Running locally
 
 ```bash
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8002
-pytest tests/
+uvicorn app.main:app --port 8002
 ```
-
-In Docker the backend reaches this service at `http://ai:8002` (see
-`docker-compose.yml`); the service is independently runnable.

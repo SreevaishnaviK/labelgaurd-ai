@@ -21,6 +21,7 @@ from app.clients.ai_client import AIServiceError
 from app.clients.computer_vision_client import CVRejectionError, CVServiceError
 from app.config import get_settings
 from app.models.inspection import (
+    ExtractionCandidate,
     ExtractedField,
     ExtractedFieldEvidence,
     Inspection,
@@ -110,12 +111,14 @@ def _extraction_pages(inspection: Inspection, session: Session) -> list[dict]:
     return pages
 
 
-def run_extraction(session: Session, inspection: Inspection) -> None:
+def run_extraction(session: Session, inspection: Inspection) -> str:
     """Call the AI service over stored OCR and persist the structured fields.
 
     AI failures leave the inspection processed-without-extraction; nothing is
-    fabricated. Re-extraction replaces previous fields (update path).
+    fabricated. Re-extraction replaces previous fields (update path). Returns
+    the AI service's provider name for system status ("none" when AI is off).
     """
+    provider_name = "none"
     if get_settings().ai_enabled:
         try:
             result = ai_client.extract_fields(
@@ -124,7 +127,8 @@ def run_extraction(session: Session, inspection: Inspection) -> None:
             )
         except AIServiceError as exc:
             logger.warning("AI extraction failed for %s: %s", inspection.inspection_id, exc.message)
-            return
+            return provider_name
+        provider_name = result.provider or "none"
         for field in session.execute(
             select(ExtractedField).where(ExtractedField.inspection_id == inspection.id)
         ).scalars():
@@ -135,14 +139,15 @@ def run_extraction(session: Session, inspection: Inspection) -> None:
                 field_name=item["field_name"],
                 status=item["status"],
                 value_json=item.get("value"),
-                candidates_json=item.get("candidates"),
                 raw_text=item.get("raw_text"),
                 ocr_confidence=item.get("ocr_confidence"),
                 extraction_confidence=item.get("extraction_confidence"),
+                ai_confidence=item.get("ai_confidence"),
+                resolution_status=item.get("resolution_status"),
                 method=item.get("method", "deterministic"),
             )
             session.add(field)
-            session.flush()  # assign field.id before evidence rows
+            session.flush()  # assign field.id before evidence/candidate rows
             for ref in item.get("evidence", []):
                 session.add(
                     ExtractedFieldEvidence(
@@ -151,6 +156,37 @@ def run_extraction(session: Session, inspection: Inspection) -> None:
                         page_number=ref.get("page_number", 1),
                     )
                 )
+            # Phase 4 auditability: every competing reading (deterministic vs
+            # AI-assisted) is preserved with method + confidence + evidence.
+            for candidate in item.get("candidates") or []:
+                session.add(
+                    ExtractionCandidate(
+                        extracted_field=field,
+                        value_json=candidate.get("value"),
+                        raw_text=candidate.get("raw_text"),
+                        method=candidate.get("method", "deterministic"),
+                        confidence=candidate.get("confidence"),
+                        evidence_json=candidate.get("evidence"),
+                    )
+                )
+    return provider_name
+
+
+def _candidate_outs(field: ExtractedField) -> list[dict]:
+    """Candidate readings from the normalized table, falling back to legacy
+    candidates_json rows written before migration 0005."""
+    if field.candidates:
+        return [
+            {
+                "raw_text": c.raw_text,
+                "value": c.value_json,
+                "method": c.method,
+                "confidence": float(c.confidence) if c.confidence is not None else None,
+                "evidence": c.evidence_json or [],
+            }
+            for c in field.candidates
+        ]
+    return [dict(c) for c in (field.candidates_json or [])]
 
 
 def get_extracted_fields(session: Session, inspection: Inspection) -> list[ExtractedField]:

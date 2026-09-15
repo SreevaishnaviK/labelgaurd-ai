@@ -114,13 +114,14 @@ def _fake_ai_fields() -> list[dict]:
 
 
 class _StubAIHandler(BaseHTTPRequestHandler):
-    behavior = {"mode": "ok"}
+    behavior = {"mode": "ok", "provider": "none"}
+    last_request: dict = {}
 
     def do_POST(self):
         import json
 
         length = int(self.headers.get("Content-Length", 0))
-        self.rfile.read(length)
+        _StubAIHandler.last_request = json.loads(self.rfile.read(length) or b"{}")
         mode = self.behavior["mode"]
         if mode == "unavailable":
             self.send_response(503)
@@ -132,7 +133,20 @@ class _StubAIHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        body = json.dumps({"status": "success", "fields": _fake_ai_fields()}).encode()
+        body = json.dumps({"status": "success", "provider": self.behavior["provider"], "fields": _fake_ai_fields()}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        """Health with provider name (Phase 4) for system-status tests."""
+        import json
+
+        body = json.dumps(
+            {"status": "ok", "service": "stub-ai", "provider": self.behavior["provider"]}
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

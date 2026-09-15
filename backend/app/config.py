@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # AI extraction
     ai_enabled: bool = True
     ai_timeout_seconds: int = 60
+    # Mode sent to the AI service: deterministic | ai_assisted | auto.
+    # The AI service owns the gating policy; the backend only chooses whether
+    # AI-assisted extraction is requested at all.
+    extraction_mode: str = "auto"
 
     @property
     def cors_origin_list(self) -> list[str]:

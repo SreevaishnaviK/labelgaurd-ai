@@ -11,7 +11,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchInspection, inspectionImageUrl } from "../lib/inspections";
-import type { ExtractedField, Inspection, OCRBlock } from "../types/api";
+import { apiUrl } from "../lib/api";
+import type { ExtractedField, Inspection, OCRBlock, SystemStatus } from "../types/api";
 
 const btnPrimary =
   "inline-flex items-center justify-center gap-2 rounded-lg bg-brand-dark px-5 py-2.5 text-sm font-medium text-brand-white transition-colors hover:bg-brand-green";
@@ -44,6 +45,18 @@ const FIELD_LABELS: Record<string, string> = {
   ingredients: "Ingredients",
   vegetarian_non_vegetarian: "Vegetarian / Non-Vegetarian",
 };
+
+function provenanceLabel(field: ExtractedField): string {
+  if (field.method === "ai_assisted") return "AI-assisted";
+  if (field.method === "deterministic_fallback") return "Deterministic fallback";
+  return "Pattern-based";
+}
+
+async function fetchSystemStatus(): Promise<SystemStatus> {
+  const response = await fetch(apiUrl("/api/v1/system/status"));
+  if (!response.ok) throw new Error("System status unavailable");
+  return response.json();
+}
 
 function formatValue(field: ExtractedField): string | null {
   const value = field.value;
@@ -108,7 +121,8 @@ function FieldCard({
           <ul className="mt-1 space-y-0.5">
             {field.candidates?.map((candidate, index) => (
               <li key={index} className="text-xs text-brand-muted">
-                Candidate {index + 1}: {candidate.raw_text ?? JSON.stringify(candidate.value)}
+                Candidate {index + 1} ({candidate.method === "ai_assisted" ? "AI-assisted" : "pattern-based"}):{" "}
+                {candidate.raw_text ?? JSON.stringify(candidate.value)}
               </li>
             ))}
           </ul>
@@ -121,9 +135,11 @@ function FieldCard({
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <p className="font-mono text-[10px] text-brand-muted">
-          {field.extraction_confidence != null && `extraction ${field.extraction_confidence}%`}
-          {field.extraction_confidence != null && field.ocr_confidence != null && " · "}
-          {field.ocr_confidence != null && `ocr ${field.ocr_confidence}%`}
+          {provenanceLabel(field)}
+          {field.extraction_confidence != null && ` · ${field.extraction_confidence}%`}
+          {field.ocr_confidence != null && ` · ocr ${field.ocr_confidence}%`}
+          {field.resolution_status === "conflict" && " · conflicting readings"}
+          {field.resolution_status === "ai_unavailable" && " · AI unavailable"}
         </p>
         {evidenceBlock && (
           <button
@@ -141,16 +157,39 @@ function FieldCard({
   );
 }
 
+function AIExtractionStatus({ status, provider }: { status: string | null; provider: string | null }) {
+  if (!status) return null; // status endpoint unreachable — say nothing rather than alarm
+  const label =
+    status === "ok"
+      ? provider && provider !== "none"
+        ? "Available"
+        : "Deterministic mode"
+      : "Unavailable — deterministic extraction used";
+  const tone = status === "ok" ? "bg-brand-green/10 text-brand-green" : "bg-brand-muted/10 text-brand-muted";
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <span className="text-sm text-brand-muted">AI Extraction</span>
+      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 function StructuredInformation({
   fields,
   blocks,
   activeBlock,
   onSelectBlock,
+  aiStatus,
+  aiProvider,
 }: {
   fields: ExtractedField[];
   blocks: OCRBlock[];
   activeBlock: OCRBlock | null;
   onSelectBlock: (block: OCRBlock | null) => void;
+  aiStatus: string | null;
+  aiProvider: string | null;
 }) {
   const blocksById = useMemo(() => new Map(blocks.map((b) => [b.block_id, b])), [blocks]);
   const activeEvidenceField = activeBlock
@@ -173,6 +212,7 @@ function StructuredInformation({
       <h2 id="fields-heading" className="text-lg font-medium text-brand-dark">
         Structured Information
       </h2>
+      <AIExtractionStatus status={aiStatus} provider={aiProvider} />
       <p className="mt-1 text-sm text-brand-muted">
         Fields read from the OCR text. Click a field's evidence to highlight it on the label.
       </p>
@@ -272,6 +312,7 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
   const [showBoxes, setShowBoxes] = useState(true);
   const [activeBlock, setActiveBlock] = useState<OCRBlock | null>(null);
   const [copied, setCopied] = useState(false);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const toggleBoxes = () => {
@@ -295,6 +336,20 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
       cancelled = true;
     };
   }, [inspectionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSystemStatus()
+      .then((status) => {
+        if (!cancelled) setSystemStatus(status);
+      })
+      .catch(() => {
+        /* status chip stays hidden — never look broken over an optional chip */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (error) {
     return (
@@ -448,6 +503,8 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
         blocks={ocr.blocks}
         activeBlock={activeBlock}
         onSelectBlock={setActiveBlock}
+        aiStatus={systemStatus?.ai ?? null}
+        aiProvider={systemStatus?.ai_provider ?? null}
       />
     </div>
   );

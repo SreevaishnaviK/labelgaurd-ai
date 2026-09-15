@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from app.config import get_settings
 from app.extraction import normalization as norm
-from app.extraction.base import BaseFieldExtractor
+from app.extraction.base import BaseFieldExtractor, FIELD_NAMES
 from app.schemas.extraction import (
     EvidenceRef,
     ExtractedFieldOut,
@@ -143,7 +143,13 @@ def _field(
             value=None,
             extraction_confidence=extraction_confidence,
             candidates=[
-                FieldCandidate(raw_text=t.raw_text or " ".join(b.text for b in t.blocks), value=t.value)
+                FieldCandidate(
+                    raw_text=t.raw_text or " ".join(b.text for b in t.blocks),
+                    value=t.value,
+                    method="deterministic",
+                    confidence=extraction_confidence,
+                    evidence=_evidence(t.blocks),
+                )
                 for t in traces
             ],
             evidence=_evidence([b for t in traces for b in t.blocks]),
@@ -538,17 +544,8 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
         traces_by_field.update(self._extract_dates(blocks))
         traces_by_field.update(self._extract_contact(blocks))
 
-        field_order = [
-            "product_name", "manufacturer", "packer", "importer", "marketer",
-            "manufacturer_address", "packer_address", "importer_address",
-            "net_quantity", "mrp", "manufacturing_date", "packing_date",
-            "best_before", "use_by", "expiry_date", "consumer_care",
-            "customer_care_phone", "customer_care_email", "website",
-            "batch_number", "lot_number", "country_of_origin", "ingredients",
-            "vegetarian_non_vegetarian",
-        ]
         fields = []
-        for name in field_order:
+        for name in FIELD_NAMES:
             traces = traces_by_field.get(name, [])
             confidence = (
                 multi_block_confidence

@@ -70,10 +70,13 @@ class ExtractionEvidenceOut(BaseModel):
 
 
 class FieldCandidateOut(BaseModel):
-    """One plausible reading of an ambiguous field."""
+    """One plausible reading of an ambiguous/conflicted field, with provenance."""
 
     raw_text: str | None = None
     value: dict | None = None
+    method: str = "deterministic"
+    confidence: float | None = None
+    evidence: list[ExtractionEvidenceOut] = []
 
 
 class ExtractedFieldOut(BaseModel):
@@ -85,6 +88,9 @@ class ExtractedFieldOut(BaseModel):
     raw_text: str | None = None
     ocr_confidence: float | None = None
     extraction_confidence: float | None = None
+    # Phase 4 provenance.
+    ai_confidence: float | None = None
+    resolution_status: str | None = None
     method: str
     evidence: list[ExtractionEvidenceOut] = []
     candidates: list[FieldCandidateOut] | None = None

@@ -19,6 +19,8 @@ services:
       - AI_SERVICE_URL=http://ai:8002
       - LEGAL_ENGINE_URL=http://legal-engine:8003
       - UPLOAD_DIR=/data/uploads
+      # Extraction mode requested from the AI service: deterministic | ai_assisted | auto.
+      - EXTRACTION_MODE=${EXTRACTION_MODE:-auto}
     volumes:
       # Stored originals + processed images must survive container replacement.
       - uploads_data:/data/uploads
@@ -46,6 +48,17 @@ services:
     build: ./ai
     ports:
       - "8002:8002"
+    environment:
+      # Phase 4: none (default) = deterministic only, no API key required.
+      # The OpenAI key lives ONLY in this service's environment — never in
+      # the backend, frontend, or database.
+      - AI_PROVIDER=${AI_PROVIDER:-none}
+      - AI_MIN_DETERMINISTIC_CONFIDENCE=${AI_MIN_DETERMINISTIC_CONFIDENCE:-85}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      # Optional JSON script for the mock provider (offline demos of the
+      # AI-assisted pipeline without an API key).
+      - MOCK_AI_FIELDS=${MOCK_AI_FIELDS:-}
 
   legal-engine:
     build: ./legal-engine

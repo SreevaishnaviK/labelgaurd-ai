@@ -129,7 +129,7 @@ class OCRDocument(Base):
 
 
 class ExtractedField(Base):
-    """One structured field extracted from an inspection's OCR (Phase 3)."""
+    """One structured field extracted from an inspection's OCR (Phase 3+4)."""
 
     __tablename__ = "extracted_fields"
 
@@ -140,11 +140,17 @@ class ExtractedField(Base):
     field_name: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # detected/not_detected/ambiguous
     value_json: Mapped[dict | None] = mapped_column(JSON, default=None)
-    # Ambiguous fields keep every candidate so review UIs survive refresh.
+    # Ambiguous/conflicted fields keep every candidate so review UIs survive refresh.
     candidates_json: Mapped[list | None] = mapped_column(JSON, default=None)
     raw_text: Mapped[str | None] = mapped_column(Text)
     ocr_confidence: Mapped[float | None] = mapped_column(Numeric(5, 2))
     extraction_confidence: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    # Phase 4 provenance: ai_confidence is the AI provider's own confidence
+    # (None for pure deterministic fields); resolution_status records how the
+    # final value was settled (ai_resolved | ai_confirmed | conflict |
+    # ai_unavailable). Competing readings live in ExtractionCandidate rows.
+    ai_confidence: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    resolution_status: Mapped[str | None] = mapped_column(String(32))
     method: Mapped[str] = mapped_column(String(32), nullable=False, default="deterministic")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -153,6 +159,9 @@ class ExtractedField(Base):
 
     inspection: Mapped[Inspection] = relationship(back_populates="extracted_fields")
     evidence: Mapped[list["ExtractedFieldEvidence"]] = relationship(
+        back_populates="extracted_field", cascade="all, delete-orphan"
+    )
+    candidates: Mapped[list["ExtractionCandidate"]] = relationship(
         back_populates="extracted_field", cascade="all, delete-orphan"
     )
 
@@ -171,6 +180,31 @@ class ExtractedFieldEvidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     extracted_field: Mapped[ExtractedField] = relationship(back_populates="evidence")
+
+
+class ExtractionCandidate(Base):
+    """One competing reading of an extracted field (Phase 4 auditability).
+
+    Preserves deterministic vs AI-assisted candidates side by side — the
+    merger never silently discards a reading, so review UIs can show exactly
+    what each method proposed, with its own evidence links.
+    """
+
+    __tablename__ = "extraction_candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    extracted_field_id: Mapped[int] = mapped_column(
+        ForeignKey("extracted_fields.id"), nullable=False, index=True
+    )
+    value_json: Mapped[dict | None] = mapped_column(JSON, default=None)
+    raw_text: Mapped[str | None] = mapped_column(Text)
+    method: Mapped[str] = mapped_column(String(32), nullable=False, default="deterministic")
+    confidence: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    # OCR block references backing THIS reading (never duplicated coordinates).
+    evidence_json: Mapped[list | None] = mapped_column(JSON, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    extracted_field: Mapped[ExtractedField] = relationship(back_populates="candidates")
 
 
 class OCRBlock(Base):

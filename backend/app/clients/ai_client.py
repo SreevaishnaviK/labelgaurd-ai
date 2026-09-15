@@ -3,6 +3,10 @@
 The backend sends stored OCR output (never images) and receives structured
 fields with evidence references. Failures surface as typed exceptions mapped
 to stored failure states; no fabricated fields are ever returned.
+
+Phase 4: the extraction mode is passed through (deterministic | ai_assisted |
+auto — the AI service owns the policy), and the response's provider name is
+surfaced for provenance/status display.
 """
 from dataclasses import dataclass, field
 
@@ -23,16 +27,20 @@ class AIServiceError(Exception):
 class AIExtractionResult:
     status: str
     fields: list[dict] = field(default_factory=list)
+    provider: str = "none"
 
 
-def extract_fields(*, inspection_id: str, pages: list[dict]) -> AIExtractionResult:
+def extract_fields(
+    *, inspection_id: str, pages: list[dict], mode: str | None = None
+) -> AIExtractionResult:
     """Send OCR pages to the AI service and return structured fields."""
     settings = get_settings()
     url = f"{settings.ai_service_url}/api/v1/extract"
+    payload: dict = {"inspection_id": inspection_id, "pages": pages, "mode": mode or settings.extraction_mode}
     try:
         response = httpx.post(
             url,
-            json={"inspection_id": inspection_id, "pages": pages},
+            json=payload,
             timeout=settings.ai_timeout_seconds,
         )
     except httpx.TimeoutException as exc:
@@ -46,4 +54,6 @@ def extract_fields(*, inspection_id: str, pages: list[dict]) -> AIExtractionResu
     body = response.json()
     if body.get("status") != "success":
         raise AIServiceError("AI service returned a non-success status.")
-    return AIExtractionResult(status=body["status"], fields=body.get("fields", []))
+    return AIExtractionResult(
+        status=body["status"], fields=body.get("fields", []), provider=body.get("provider", "none")
+    )

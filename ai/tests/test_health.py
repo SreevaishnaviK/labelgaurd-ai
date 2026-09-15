@@ -8,8 +8,13 @@ client = TestClient(app)
 
 def test_health() -> None:
     response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "LabelGuard AI AI Service"}
+    # Provider name is exposed (Phase 4); keys/secrets never are.
+    assert response.json() == {
+        "status": "ok",
+        "service": "LabelGuard AI AI Service",
+        "provider": "none",
+    }
+    assert "api_key" not in str(response.json()).lower()
 
 
 def test_extract_requires_pages() -> None:
