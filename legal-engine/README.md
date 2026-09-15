@@ -21,9 +21,14 @@ missing information into a violation.
   Schedule specified quantities, Third/Fourth Schedule lists) live only in
   `app/rules/schedule_data.py`, and every row is verification-gated
   (`verified` + `source_page`). See **docs/schedule-population.md**.
-- The supplied PDF was not present in the build environment, so all schedule
-  datasets ship **empty and unverified**; Schedule-dependent checks therefore
-  return `NOT_VERIFIABLE` rather than run on remembered values.
+- The supplied PDF (committed at `legal-engine/docs/lmpc-2011.pdf`, an 83-page
+  scan without a text layer) has been transcribed: First Schedule Table I, the
+  Rule 7 letter-height tables, the Second Schedule (all 23 commodities) and
+  the Third/Fourth Schedules are populated and `verified=True`. First Schedule
+  Table II (MPE for length/area/number declarations) resisted OCR and remains
+  deliberately **unverified** — it can never drive a decision until a human
+  transcribes it. OCR-conflicted cells were settled by explicit human
+  transcription (recorded in docs/schedule-population.md).
 
 ## Implemented rule groups (this phase)
 
@@ -31,7 +36,7 @@ missing information into a violation.
 | --- | --- | --- |
 | `LMPC-R6-A`…`F` | Rule 6 | presence of the mandatory declarations: party name, product name, net quantity, month-year, MRP, consumer care |
 | `LMPC-R7-A` | Rule 7 | principal display panel detection |
-| `LMPC-R7-B` | Rule 7 | minimum numeral height (data-gated on the First Schedule tables) |
+| `LMPC-R7-B` | Rule 7 | minimum numeral height vs the verified Rule 7 tables (weight/volume bands, or PDP-area bands for length/area/number declarations; normal vs formed container column) |
 | `LMPC-R8-A` | Rule 8 | declarations appear on the principal display panel (region evidence only) |
 | `LMPC-R9-A` | Rule 9 | legibility/prominence (contrast evidence or review) |
 | `LMPC-R9-B` | Rule 9 | declaration language (detection evidence or review) |
@@ -42,8 +47,9 @@ missing information into a violation.
 
 **Not yet implemented:** Rules 3, 4, 5, 14–18, 19-onward (inspection/testing),
 24 (wholesale), 25 (export), 26 (exemptions), 27-onward (registration), 31
-(advertisements), Fifth–Seventh Schedules (sampling/testing), and the
-numeric threshold comparisons that need the verified schedule tables.
+(advertisements), Fifth–Seventh Schedules (sampling/testing), First Schedule
+Table II numerics (unverified — awaiting human transcription), Second-Schedule
+quantity conformance checks, and MPE application to net-quantity testing.
 
 ## Evaluation states
 

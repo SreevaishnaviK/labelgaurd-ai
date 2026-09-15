@@ -71,6 +71,9 @@ class VisualEvidence(BaseModel):
     # read — the sole basis for treating a missing declaration as established.
     label_fully_processed: bool | None = None
     principal_display_panel_detected: bool | None = None
+    # Area of the principal display panel in cm², when measured (selects the
+    # Rule 7 Table II height band for quantities declared by length/area/number).
+    principal_display_panel_area_cm2: float | None = None
     declaration_regions: list[dict[str, Any]] = Field(default_factory=list)
     text_regions: list[dict[str, Any]] = Field(default_factory=list)
     estimated_letter_heights_mm: dict[str, float] = Field(default_factory=dict)

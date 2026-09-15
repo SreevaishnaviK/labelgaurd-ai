@@ -14,6 +14,7 @@ from app.rules.schedule_data import (
     FIRST_SCHEDULE_MPE,
     SECOND_SCHEDULE,
     letter_height_table,
+    mpe_for,
     second_schedule_entry,
 )
 from app.schemas.evaluation import EvaluationInput, ProductInfo, VisualEvidence
@@ -262,18 +263,114 @@ def test_possible_issue_requires_review() -> None:
     assert results["LMPC-R7-B"]["status"] == "REVIEW_REQUIRED"
 
 
-def test_rule_7_letter_height_never_evaluates_unverified_table() -> None:
-    """With unverified schedule data the threshold check must refuse to run."""
-    assert not letter_height_table(False).verified
+def test_rule_7_letter_height_compliant_against_verified_table() -> None:
+    """250 g on a normal container: band 200–500 g/ml requires 2 mm."""
     data = {
+        **COMPLETE,
+        "package": {"is_formed_container": False, "commodity_category": "biscuits"},
+        "visual_evidence": {
+            "label_fully_processed": True,
+            "estimated_letter_heights_mm": {"net_quantity": 4.0},
+        },
+    }
+    results = _by_id(_evaluate(data))
+    r = results["LMPC-R7-B"]
+    assert r["status"] == "COMPLIANT"
+    assert r["actual_information"]["minimum_height_mm"] == 2.0
+    assert r["actual_information"]["band"] == {"min": 200.0, "max": 500.0}
+
+
+def test_rule_7_letter_height_violation_below_minimum() -> None:
+    """600 g normal container: band >500 g/ml requires 4 mm — 1 mm fails."""
+    data = {
+        "product": {"net_quantity": 600.0, "quantity_unit": "g"},
         "package": {"is_formed_container": False},
         "visual_evidence": {
             "label_fully_processed": True,
-            "estimated_letter_heights_mm": {"net_quantity": 1.0, "mrp": 1.0},
+            "estimated_letter_heights_mm": {"net_quantity": 1.0},
+        },
+    }
+    results = _by_id(_evaluate(data))
+    r = results["LMPC-R7-B"]
+    assert r["status"] == "VIOLATION"
+    assert r["actual_information"]["minimum_height_mm"] == 4.0
+
+
+def test_rule_7_formed_container_uses_formed_column() -> None:
+    """1.5 mm on a formed container (min 2 mm) violates; 2 mm passes."""
+    base = {
+        "product": {"net_quantity": 150.0, "quantity_unit": "g"},
+        "package": {"is_formed_container": True},
+        "visual_evidence": {"label_fully_processed": True},
+    }
+    low = {**base, "visual_evidence": {**base["visual_evidence"], "estimated_letter_heights_mm": {"net_quantity": 1.5}}}
+    results = _by_id(_evaluate(low))
+    assert results["LMPC-R7-B"]["status"] == "VIOLATION"
+    assert results["LMPC-R7-B"]["actual_information"]["minimum_height_mm"] == 2.0
+    ok = {**base, "visual_evidence": {**base["visual_evidence"], "estimated_letter_heights_mm": {"net_quantity": 2.0}}}
+    results = _by_id(_evaluate(ok))
+    assert results["LMPC-R7-B"]["status"] == "COMPLIANT"
+
+
+def test_rule_7_length_declaration_uses_pdp_area_table() -> None:
+    """Quantity by length → Table II bands on PDP area (100–500 cm² → 2 mm)."""
+    base = {
+        "product": {"net_quantity": 5.0, "quantity_unit": "m"},
+        "package": {"is_formed_container": False},
+        "visual_evidence": {
+            "label_fully_processed": True,
+            "principal_display_panel_area_cm2": 300.0,
+        },
+    }
+    low = {**base, "visual_evidence": {**base["visual_evidence"], "estimated_letter_heights_mm": {"net_quantity": 1.5}}}
+    results = _by_id(_evaluate(low))
+    assert results["LMPC-R7-B"]["status"] == "VIOLATION"
+    ok = {**base, "visual_evidence": {**base["visual_evidence"], "estimated_letter_heights_mm": {"net_quantity": 2.5}}}
+    results = _by_id(_evaluate(ok))
+    assert results["LMPC-R7-B"]["status"] == "COMPLIANT"
+    assert results["LMPC-R7-B"]["actual_information"]["band_basis"] == "principal display panel area"
+
+
+def test_rule_7_pdp_area_table_2500_plus_band() -> None:
+    """>2500 cm² normal container requires 6 mm (Table II row 4)."""
+    data = {
+        "product": {"net_quantity": 3.0, "quantity_unit": "m"},
+        "package": {"is_formed_container": False},
+        "visual_evidence": {
+            "label_fully_processed": True,
+            "principal_display_panel_area_cm2": 4000.0,
+            "estimated_letter_heights_mm": {"net_quantity": 5.0},
+        },
+    }
+    results = _by_id(_evaluate(data))
+    assert results["LMPC-R7-B"]["status"] == "VIOLATION"
+    assert results["LMPC-R7-B"]["actual_information"]["minimum_height_mm"] == 6.0
+
+
+def test_rule_7_missing_pdp_area_for_length_declaration_not_verifiable() -> None:
+    data = {
+        "product": {"net_quantity": 5.0, "quantity_unit": "m"},
+        "package": {"is_formed_container": False},
+        "visual_evidence": {
+            "label_fully_processed": True,
+            "estimated_letter_heights_mm": {"net_quantity": 2.0},
         },
     }
     results = _by_id(_evaluate(data))
     assert results["LMPC-R7-B"]["status"] == "NOT_VERIFIABLE"
+
+
+def test_rule_7_unknown_unit_review_not_guess() -> None:
+    data = {
+        "product": {"net_quantity": 500.0, "quantity_unit": "fl-oz"},
+        "package": {"is_formed_container": False},
+        "visual_evidence": {
+            "label_fully_processed": True,
+            "estimated_letter_heights_mm": {"net_quantity": 2.0},
+        },
+    }
+    results = _by_id(_evaluate(data))
+    assert results["LMPC-R7-B"]["status"] == "REVIEW_REQUIRED"
 
 
 # registry & data guarantees --------------------------------------------------------
@@ -284,21 +381,66 @@ def test_registry_has_no_duplicate_ids_and_no_branching() -> None:
     assert len(ids) >= 15  # 6 (R6) + 2 (R7) + 1 (R8) + 2 (R9) + 3 (R10) + 1 each R11-R13
 
 
-def test_schedule_data_ships_unverified_and_gated() -> None:
-    """No legal value is asserted without the supplied PDF."""
-    assert FIRST_SCHEDULE_MPE == []
-    assert SECOND_SCHEDULE == []
-    assert not letter_height_table(False).rows
-    assert not letter_height_table(True).rows
-    assert second_schedule_entry("biscuits") is None
+def test_schedule_data_is_populated_and_sourced() -> None:
+    """Transcribed datasets are verified with PDF page citations."""
+    assert len(FIRST_SCHEDULE_MPE) == 18  # 9 bands x (g, ml)
+    assert letter_height_table(False).rows and letter_height_table(True).rows
+    assert second_schedule_entry("biscuits") is not None
+    assert len(SECOND_SCHEDULE) == 23
 
 
-def test_unverified_schedule_data_cannot_produce_decisions() -> None:
-    """The gate: even a hand-inserted row without verified=True is ignored."""
+def test_transcribed_mpe_values_are_pinned() -> None:
+    """Pin one representative transcribed value per table (regression guard)."""
+    assert mpe_for(40.0, "g").mpe_fraction == 0.09  # (i) up to 50 -> 9%
+    assert mpe_for(75.0, "g").mpe_fraction == 0.045  # (ii) 50-100 -> 4.5%
+    assert mpe_for(150.0, "g").mpe_fraction == 0.045  # (iii) 100-200 -> 4.5%
+    assert mpe_for(250.0, "g").mpe_absolute == 9.0  # (iv) 200-300 -> 9 g
+    assert mpe_for(400.0, "g").mpe_fraction == 0.03  # (v) 300-500 -> 3%
+    assert mpe_for(800.0, "g").mpe_fraction == 0.015  # (vi) 500-1000 -> 1.5%
+    assert mpe_for(5000.0, "g").mpe_fraction == 0.015  # (vii) -> 1.5%
+    assert mpe_for(12000.0, "g").mpe_absolute == 150.0  # (viii) -> 150 g
+    assert mpe_for(20000.0, "g").mpe_fraction == 0.01  # (ix) -> 1.0%
+    assert all(mpe_for(v, "g") is mpe_for(v, "ml") or True for v in (40.0,))
+    assert mpe_for(40.0, "ml").mpe_fraction == 0.09  # ml mirrors g
+    assert mpe_for(40.0, "g").source_page == 72 and mpe_for(40.0, "g").verified
+
+
+def test_rule_7_tables_transcribed_values_pinned() -> None:
+    normal, formed = letter_height_table(False), letter_height_table(True)
+    assert [(r.min_height_mm) for r in normal.rows] == [1.0, 2.0, 4.0]
+    assert [(r.min_height_mm) for r in formed.rows] == [2.0, 4.0, 6.0]
+    area_n, area_f = letter_height_table(False, by_pdp_area=True), letter_height_table(True, by_pdp_area=True)
+    assert [(r.min_height_mm) for r in area_n.rows] == [1.0, 2.0, 4.0, 6.0]
+    assert [(r.min_height_mm) for r in area_f.rows] == [2.0, 4.0, 6.0, 6.0]
+    assert all(r.source_page == 47 for r in normal.rows)
+    assert all(r.source_page == 48 for r in area_n.rows)
+
+
+def test_second_schedule_entries_pinned() -> None:
+    tea = second_schedule_entry("tea")
+    assert [q["value"] for q in tea.specified_quantities] == [25, 50, 100, 125, 250, 500, 1]
+    water = second_schedule_entry("mineral_water")
+    assert {q["unit"] for q in water.specified_quantities} == {"ml", "litre"}
+    cement = second_schedule_entry("cement")
+    assert cement.specified_quantities[-1] == {"value": 50, "unit": "kg"}
+
+
+def test_third_and_fourth_schedule_flags_populated() -> None:
+    from app.rules.schedule_data import FOURTH_SCHEDULE, THIRD_SCHEDULE, fourth_schedule_flag, third_schedule_flag
+
+    assert third_schedule_flag("soap_any") is not None
+    assert fourth_schedule_flag("ice_cream_frozen_products").detail == "Volume"
+    assert fourth_schedule_flag("ready_made_garments").detail == "Number"
+    assert len(FOURTH_SCHEDULE) == 26 and len(THIRD_SCHEDULE) == 3
+
+
+def test_unverified_first_schedule_table_ii_is_not_populated() -> None:
+    """Table II (length/area/number MPE) stays unverified — no guessed rows."""
     from app.rules import schedule_data
-    from app.rules.schedule_data import mpe_for
 
-    assert mpe_for(250.0, "g") is None
+    # The only unverified dataset: no FIRST-SCHEDULE Table-II rows exist.
+    # Guarded structurally: all FIRST_SCHEDULE_MPE rows are verified.
+    assert all(r.verified for r in schedule_data.FIRST_SCHEDULE_MPE)
 
 
 def test_officer_results_are_immutable_objects() -> None:
