@@ -10,9 +10,10 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
-import { fetchInspection, inspectionImageUrl } from "../lib/inspections";
+import CompliancePanel from "./CompliancePanel";
+import { evaluateInspection, fetchInspection, inspectionImageUrl } from "../lib/inspections";
 import { apiUrl } from "../lib/api";
-import type { ExtractedField, Inspection, OCRBlock, SystemStatus } from "../types/api";
+import type { Evaluation, ExtractedField, Inspection, OCRBlock, SystemStatus } from "../types/api";
 
 const btnPrimary =
   "inline-flex items-center justify-center gap-2 rounded-lg bg-brand-dark px-5 py-2.5 text-sm font-medium text-brand-white transition-colors hover:bg-brand-green";
@@ -313,6 +314,9 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
   const [activeBlock, setActiveBlock] = useState<OCRBlock | null>(null);
   const [copied, setCopied] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [evaluating, setEvaluating] = useState(false);
+  const [evaluateError, setEvaluateError] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const toggleBoxes = () => {
@@ -323,11 +327,36 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
     setShowBoxes((value) => !value);
   };
 
+  // Hooks live above every early return (Rules of Hooks).
+  const blocksById = useMemo(
+    () => new Map((inspection?.ocr.blocks ?? []).map((b) => [b.block_id, b])),
+    [inspection],
+  );
+
+  const runEvaluation = async () => {
+    setEvaluating(true);
+    setEvaluateError(null);
+    try {
+      setEvaluation(await evaluateInspection(inspectionId));
+    } catch (err) {
+      setEvaluateError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not run the assessment.",
+      );
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     fetchInspection(inspectionId)
       .then((data) => {
-        if (!cancelled) setInspection(data);
+        if (!cancelled) {
+          setInspection(data);
+          setEvaluation(data.evaluation ?? null);
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -505,6 +534,16 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
         onSelectBlock={setActiveBlock}
         aiStatus={systemStatus?.ai ?? null}
         aiProvider={systemStatus?.ai_provider ?? null}
+      />
+
+      <CompliancePanel
+        evaluation={evaluation}
+        blocksById={blocksById}
+        activeBlock={activeBlock}
+        onSelectBlock={setActiveBlock}
+        onRunEvaluation={runEvaluation}
+        evaluating={evaluating}
+        evaluateError={evaluateError}
       />
     </div>
   );

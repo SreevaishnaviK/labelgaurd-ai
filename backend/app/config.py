@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 20
     cv_timeout_seconds: int = 60
 
+    # Legal engine evaluation
+    legal_engine_timeout_seconds: int = 30
+
     # AI extraction
     ai_enabled: bool = True
     ai_timeout_seconds: int = 60

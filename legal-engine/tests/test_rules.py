@@ -152,6 +152,52 @@ def test_missing_manufacture_date() -> None:
 
 # 7. missing consumer-care --------------------------------------------------------
 
+# Rule 11-B: MPE check against verified First Schedule data ---------------------
+
+def test_mpe_requires_physical_measurement() -> None:
+    results = _by_id(_evaluate(COMPLETE))
+    # Declared quantity present, no measurement supplied -> REVIEW_REQUIRED,
+    # never an inferred violation.
+    mpe = results["LMPC-R11-B"]
+    assert mpe["status"] == "REVIEW_REQUIRED"
+    assert mpe["requires_officer_verification"] is True
+
+
+def test_mpe_compliant_within_absolute_tolerance() -> None:
+    # 250 g band (First Schedule row iv, p72): 9 g absolute tolerance.
+    data = {**COMPLETE, "visual_evidence": {**COMPLETE["visual_evidence"], "measured_quantity": 244.0}}
+    mpe = _by_id(_evaluate(data))["LMPC-R11-B"]
+    assert mpe["status"] == "COMPLIANT"
+    assert mpe["actual_information"]["tolerance"] == 9.0
+
+
+def test_mpe_boundary_shortfall_equals_tolerance_is_compliant() -> None:
+    data = {**COMPLETE, "visual_evidence": {**COMPLETE["visual_evidence"], "measured_quantity": 241.0}}
+    assert _by_id(_evaluate(data))["LMPC-R11-B"]["status"] == "COMPLIANT"
+
+
+def test_mpe_violation_beyond_tolerance() -> None:
+    data = {**COMPLETE, "visual_evidence": {**COMPLETE["visual_evidence"], "measured_quantity": 240.0}}
+    assert _by_id(_evaluate(data))["LMPC-R11-B"]["status"] == "VIOLATION"
+
+
+def test_mpe_fractional_band_and_uncovered_unit() -> None:
+    # 450 g -> row (v): 3% of declared = 13.5 g.
+    frac = {
+        "product": {"net_quantity": 450.0, "quantity_unit": "g"},
+        "visual_evidence": {"measured_quantity": 430.0},
+    }
+    mpe = _by_id(_evaluate(frac))["LMPC-R11-B"]
+    assert mpe["status"] == "VIOLATION"
+    assert mpe["actual_information"]["tolerance"] == 13.5
+    # A unit with no verified First Schedule rows can never be compared.
+    unknown = {
+        "product": {"net_quantity": 2.0, "quantity_unit": "lb"},
+        "visual_evidence": {"measured_quantity": 1.9},
+    }
+    assert _by_id(_evaluate(unknown))["LMPC-R11-B"]["status"] == "NOT_VERIFIABLE"
+
+
 def test_missing_consumer_care() -> None:
     data = {"product": {k: v for k, v in COMPLETE["product"].items() if k != "consumer_care"}}
     results = _by_id(_evaluate(data))

@@ -79,6 +79,52 @@ export type ExtractedField = {
   candidates: FieldCandidate[] | null;
 };
 
+export type RuleEvaluationStatus =
+  | "COMPLIANT"
+  | "VIOLATION"
+  | "REVIEW_REQUIRED"
+  | "NOT_VERIFIABLE"
+  | "NOT_APPLICABLE";
+
+/** Reference from a rule result to its supporting data. */
+export type RuleEvidence = {
+  evidence_type: string;
+  evidence_reference: string | null;
+  ocr_block_id: string | null;
+  page_number: number | null;
+  extracted_field_id: number | null;
+  source_page: number | null;
+};
+
+/** One rule's automated result — immutable, produced by the legal engine. */
+export type RuleResult = {
+  rule_id: string;
+  rule_number: string;
+  rule_title: string;
+  status: RuleEvaluationStatus;
+  severity: string;
+  finding: string;
+  required_information: string[];
+  actual_information: Record<string, unknown>;
+  confidence: number | null;
+  requires_officer_verification: boolean;
+  source: { document?: string; page?: number | null } & Record<string, unknown>;
+  evidence: RuleEvidence[];
+};
+
+/** Overall assessment state — a rollup, never a score or certification. */
+export type OverallStatus = "COMPLIANT" | "NON_COMPLIANT" | "REVIEW_REQUIRED" | "INCOMPLETE";
+
+export type Evaluation = {
+  inspection_id: string;
+  evaluation_id: number;
+  evaluation_version: number;
+  engine_version: string;
+  overall_status: OverallStatus;
+  evaluated_at: string;
+  results: RuleResult[];
+};
+
 export type Inspection = {
   inspection_id: string;
   status: InspectionStatus;
@@ -94,6 +140,7 @@ export type Inspection = {
   extraction: {
     fields: ExtractedField[];
   };
+  evaluation: Evaluation | null;
 };
 
 export type UploadSuccess = {

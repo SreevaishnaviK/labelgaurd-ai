@@ -100,6 +100,47 @@ class ExtractionOut(BaseModel):
     fields: list[ExtractedFieldOut]
 
 
+class RuleEvidenceOut(BaseModel):
+    """Reference from a rule result to its supporting data (never duplicated
+    OCR content — block ids and field references only)."""
+
+    evidence_type: str
+    evidence_reference: str | None = None
+    ocr_block_id: str | None = None
+    page_number: int | None = None
+    extracted_field_id: int | None = None
+    source_page: int | None = None
+
+
+class RuleResultOut(BaseModel):
+    """One rule's automated, immutable evaluation result."""
+
+    rule_id: str
+    rule_number: str
+    rule_title: str
+    status: str
+    severity: str
+    finding: str
+    required_information: list[str] = []
+    actual_information: dict = {}
+    confidence: float | None = None
+    requires_officer_verification: bool = False
+    source: dict = {}
+    evidence: list[RuleEvidenceOut] = []
+
+
+class EvaluationOut(BaseModel):
+    """One persisted automated evaluation (the latest or requested version)."""
+
+    inspection_id: str
+    evaluation_id: int
+    evaluation_version: int
+    engine_version: str
+    overall_status: str
+    evaluated_at: datetime
+    results: list[RuleResultOut]
+
+
 class InspectionOut(BaseModel):
     inspection_id: str
     status: str
@@ -107,6 +148,8 @@ class InspectionOut(BaseModel):
     file: FileMeta
     ocr: OCRRetrieval
     extraction: ExtractionOut
+    # Latest automated evaluation, when one has been run.
+    evaluation: EvaluationOut | None = None
 
 
 class UploadErrorResponse(BaseModel):

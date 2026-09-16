@@ -1,4 +1,4 @@
-"""Inspection API routes (Phase 2)."""
+"""Inspection API routes (Phase 2 upload/retrieval, Phase 6 evaluation)."""
 import mimetypes
 from pathlib import Path
 
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.inspection import (
+    EvaluationOut,
     ExtractionEvidenceOut,
     ExtractionOut,
     ExtractedFieldOut,
@@ -17,7 +18,8 @@ from app.schemas.inspection import (
     OCRPageOut,
     UploadSuccess,
 )
-from app.services import inspection_service
+from app.services import evaluation_service, inspection_service
+from app.services.evaluation_service import latest_evaluation
 from app.services.inspection_service import average_confidence, get_extracted_fields
 
 router = APIRouter(prefix="/api/v1/inspections")
@@ -106,6 +108,7 @@ def _to_out(inspection, session: Session) -> InspectionOut:
         )
         for field in get_extracted_fields(session, inspection)
     ]
+    latest = latest_evaluation(session, inspection)
     return InspectionOut(
         inspection_id=inspection.inspection_id,
         status=inspection.processing_status.value,
@@ -122,6 +125,11 @@ def _to_out(inspection, session: Session) -> InspectionOut:
             "average_confidence": average_confidence(session, inspection.id),
         },
         extraction=ExtractionOut(fields=extraction),
+        evaluation=(
+            EvaluationOut(inspection_id=inspection.inspection_id, **evaluation_service.evaluation_out(latest))
+            if latest
+            else None
+        ),
     )
 
 
@@ -129,6 +137,36 @@ def _to_out(inspection, session: Session) -> InspectionOut:
 def get_inspection(inspection_id: str, session: Session = Depends(get_db)) -> InspectionOut:
     inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
     return _to_out(inspection, session)
+
+
+@router.post("/{inspection_id}/evaluate", response_model=EvaluationOut)
+def evaluate_inspection(inspection_id: str, session: Session = Depends(get_db)) -> EvaluationOut:
+    """Run a new automated evaluation version over the persisted inspection."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    try:
+        evaluation = evaluation_service.evaluate_inspection(session, inspection)
+    except evaluation_service.ExtractionUnavailableError as exc:
+        raise HTTPException(status_code=409, detail={"code": "EXTRACTION_NOT_AVAILABLE", "message": exc.message}) from exc
+    except evaluation_service.LegalEngineError as exc:
+        raise HTTPException(status_code=503, detail={"code": "LEGAL_ENGINE_UNAVAILABLE", "message": exc.message}) from exc
+    return EvaluationOut(
+        inspection_id=inspection.inspection_id, **evaluation_service.evaluation_out(evaluation)
+    )
+
+
+@router.get("/{inspection_id}/evaluation", response_model=EvaluationOut)
+def get_evaluation(inspection_id: str, session: Session = Depends(get_db)) -> EvaluationOut:
+    """Latest persisted evaluation, 404 when none has been run yet."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    evaluation = latest_evaluation(session, inspection)
+    if evaluation is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "EVALUATION_NOT_FOUND", "message": "No evaluation has been run for this inspection."},
+        )
+    return EvaluationOut(
+        inspection_id=inspection.inspection_id, **evaluation_service.evaluation_out(evaluation)
+    )
 
 
 @router.get("/{inspection_id}/image")

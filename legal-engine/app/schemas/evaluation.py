@@ -42,12 +42,22 @@ class ProductInfo(BaseModel):
     mrp: dict[str, Any] | None = None
     manufacture_month: int | None = Field(default=None, ge=1, le=12)
     manufacture_year: int | None = None
+    # Raw date declarations (extraction preserves them as text; date VALIDITY
+    # is a legal question no engine rule performs).
+    manufacturing_date: str | None = None
+    packing_date: str | None = None
+    best_before: str | None = None
+    use_by: str | None = None
+    expiry_date: str | None = None
     consumer_care: str | None = None
     customer_care_phone: str | None = None
     customer_care_email: str | None = None
+    website: str | None = None
     ingredients: str | None = None
     country_of_origin: str | None = None
     batch_number: str | None = None
+    lot_number: str | None = None
+    vegetarian_non_vegetarian: str | None = None
 
 
 class PackageInfo(BaseModel):
@@ -84,6 +94,10 @@ class VisualEvidence(BaseModel):
     declaration_language: str | None = None
     # OCR evidence refs (block ids) supporting the structured fields.
     evidence_block_ids: list[str] = Field(default_factory=list)
+    # Physically measured average quantity of the package in the same unit as
+    # quantity_unit, when a real measurement was supplied. The engine NEVER
+    # invents this: MPE checks run only when it is present.
+    measured_quantity: float | None = None
 
 
 class EvaluationInput(BaseModel):

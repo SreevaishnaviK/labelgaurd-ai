@@ -7,7 +7,7 @@ violation.
 """
 from fastapi import FastAPI
 
-from app.api import health
+from app.api import evaluate, health
 
 app = FastAPI(
     title="LabelGuard AI Legal Engine",
@@ -16,3 +16,4 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(evaluate.router)

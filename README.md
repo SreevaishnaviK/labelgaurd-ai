@@ -5,13 +5,16 @@ AI-powered compliance inspection for packaged commodity labels. **Analyze. Verif
 LabelGuard AI inspects packaged-commodity labels, extracts declared information, evaluates Legal
 Metrology requirements, and produces evidence-backed assessments for officer verification.
 
-> **Status: Phase 3 — Structured Information Extraction.** Upload a real label and the backend
-> stores the original, runs preprocessing + Tesseract OCR in the computer-vision service, then
-> sends the OCR output (never the image) to the AI service for deterministic field extraction.
-> Structured fields — with detected/not_detected/ambiguous status, separate OCR and extraction
-> confidence, and evidence references back to OCR blocks — persist in PostgreSQL and drive the
-> frontend's Structured Information panel. Legal Metrology rules and compliance scoring arrive
-> in later phases — nothing here fabricates results or judges compliance.
+> **Status: Phase 6 — Full compliance evaluation pipeline.** Upload a real label and the backend
+> stores the original, runs preprocessing + Tesseract OCR in the computer-vision service, extracts
+> structured fields in the AI service (deterministic patterns, optionally AI-assisted), then calls
+> the legal engine to evaluate the extracted information against the implemented Legal Metrology
+> (Packaged Commodities) Rules, 2011 checks. Rule results, evidence references, and provenance
+> persist in PostgreSQL as immutable evaluation versions and drive the frontend's Structured
+> Information and Compliance Assessment panels.
+>
+> **This is an automated assessment system, not legal certification.** Results support officer
+> verification; they never claim a product is legally certified or fully compliant.
 
 ## Phase 2 — OCR pipeline
 
@@ -98,9 +101,78 @@ OCR persisted (Phase 2)
 POST /api/v1/extract                # ai service: OCR pages in → structured fields out
 ```
 
----
+## Phase 4 — AI-assisted extraction
 
-## Architecture
+Extraction keeps its deterministic base and gains an optional AI resolution layer:
+`AI_PROVIDER=none|mock|openai` selects the provider (none = deterministic only, no key needed).
+In `auto` mode AI is consulted only for ambiguous or low-confidence fields; every AI response is
+schema-validated and evidence-checked (hallucinated or evidence-free fields are rejected), and
+any provider failure degrades to `deterministic_fallback` without failing the inspection.
+Conflicts become `ambiguous` with all candidates persisted (`ExtractionCandidate` rows carry
+method + confidence + evidence per reading). Fields expose provenance: `method`, `ai_confidence`,
+`resolution_status`.
+
+## Phase 5 — Legal engine foundation + verified schedule data
+
+`legal-engine/` implements deterministic evaluation of Legal Metrology (Packaged Commodities)
+Rules, 2011 checks over a structured input model (product / package / visual_evidence — all
+nullable). A central rule registry drives 18 checks across Rules 6–13; every result carries one
+of five states (see Phase 6 below) and never converts missing evidence into a violation.
+Numeric legal values (Rule 7 letter-height tables, First Schedule MPE, Second/Third/Fourth
+Schedule entries) were transcribed from the supplied PDF (committed at
+`legal-engine/docs/lmpc-2011.pdf`) and are verification-gated: rows without dual-source
+agreement stay `verified=False` and cannot drive any conclusion — see
+`legal-engine/docs/schedule-population.md`.
+
+## Phase 6 — End-to-end compliance evaluation
+
+```text
+Inspection persisted (OCR + extraction)
+  → POST /api/v1/inspections/{id}/evaluate (backend)
+      build evaluation input from persisted data — only detected fields with
+      real evidence are mapped; no visual evidence or package facts are invented
+  → POST /api/v1/evaluate (legal engine, http://legal-engine:8003)
+      rule registry → per-rule status + finding + source + evidence
+  → persist InspectionEvaluation (new immutable version) + RuleEvaluation rows
+    + RuleEvaluationEvidence references (block ids / field ids — no duplication)
+  → GET /api/v1/inspections/{id} and /evaluation return the latest version
+  → frontend Compliance Assessment panel: overall status, rule checklist,
+    per-rule evidence buttons that highlight the referenced OCR blocks
+```
+
+- **Evaluation states (per rule):** `COMPLIANT` (evidence establishes the requirement is
+  satisfied) · `VIOLATION` (evidence establishes it is not) · `REVIEW_REQUIRED` (deterministic
+  evaluation cannot settle it — e.g. legibility, or an unmeasured quantity) · `NOT_VERIFIABLE`
+  (required evidence unavailable) · `NOT_APPLICABLE` (rule does not apply to this package).
+  Missing information is **never** automatically a violation.
+- **Overall status:** backend-derived rollup (`COMPLIANT` / `NON_COMPLIANT` / `REVIEW_REQUIRED`
+  / `INCOMPLETE`) — a state, not a score. No compliance percentage or score exists anywhere.
+- **Evidence traceability:** each rule result links to the extracted fields and OCR block ids
+  that support it; the frontend highlights those blocks in the existing overlay. Schedule-backed
+  results carry the source document and page.
+- **Immutability + versioning:** re-evaluation appends a new `InspectionEvaluation` version
+  (`evaluation_version` + 1) — previous automated results are never updated or deleted. Officer
+  corrections (a later phase) must be stored separately, never spliced into these records.
+- **Key APIs added:**
+
+```http
+POST /api/v1/inspections/{id}/evaluate    # run a new evaluation version
+GET  /api/v1/inspections/{id}/evaluation  # latest persisted evaluation
+POST /api/v1/evaluate                     # (legal engine) direct structured evaluation
+```
+
+- **Implemented rules:** Rule 6 declarations (party, product name, net quantity, month-year,
+  MRP, consumer care), Rule 7 (PDP detection; letter-height minimums from the verified Rule 7
+  tables), Rule 8 (placement — region-evidence gated), Rule 9 (contrast / language —
+  review-gated), Rule 10 (party + address, importer for imports), Rule 11 (quantity declared;
+  MPE check against verified First Schedule data when a physical measurement is supplied),
+  Rule 12 (quantity-unit framework), Rule 13 (unit symbols).
+- **Not yet implemented:** Rules 3–5, 14–18, 24–26, 31, First Schedule Table II MPE values
+  (unverified transcription), physical quantity testing, officer verification workflow, and any
+  form of compliance scoring or legal certification. The engine evaluates only what is
+  implemented; everything else remains out of scope until its data is verified from the source.
+
+---
 
 ```text
                  ┌──────────────┐
@@ -238,7 +310,9 @@ alembic revision --autogenerate -m "initial schema" # create a new migration
 ```
 
 Phase 1 models: `Inspection`, `Product` (nullable fields), and `AuditLog`. Phase 2 extends
-`Inspection` with file/processing metadata and adds `OCRDocument` + `OCRBlock`.
+`Inspection` with file/processing metadata and adds `OCRDocument` + `OCRBlock`. Phase 3+4 add
+`ExtractedField`, `ExtractedFieldEvidence`, and `ExtractionCandidate`. Phase 6 adds the immutable
+evaluation trio: `InspectionEvaluation`, `RuleEvaluation`, `RuleEvaluationEvidence`.
 
 ## Health checks
 
@@ -273,11 +347,12 @@ Interactive docs for each service:
 | Phase | Scope                                                        | Status         |
 | ----- | ------------------------------------------------------------ | -------------- |
 | 1     | System foundation: services, health checks, PostgreSQL       | Done           |
-| 2     | Computer vision: upload, preprocessing, OCR, bounding boxes  | **Current**    |
-| 3     | Inspection workflow and persistence                          | Planned        |
-| 4     | AI extraction and assessment                                 | Planned        |
-| 5     | Legal Metrology rule engine and compliance evaluation        | Planned        |
-| 6     | Reporting, officer verification workflow                     | Planned        |
+| 2     | Computer vision: upload, preprocessing, OCR, bounding boxes  | Done           |
+| 3     | Structured information extraction + evidence linking         | Done           |
+| 4     | AI-assisted extraction (provider abstraction, fallback)      | Done           |
+| 5     | Legal engine foundation + verified schedule data             | Done           |
+| 6     | End-to-end compliance evaluation + persistence + UI          | **Current**    |
+| 7     | Officer verification workflow, reporting                     | Planned        |
 
 ## Tests
 

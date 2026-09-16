@@ -9,7 +9,11 @@ client = TestClient(app)
 def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "LabelGuard AI Legal Engine"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "LabelGuard AI Legal Engine"
+    # Version is exposed for evaluation provenance (engine_version).
+    assert isinstance(body["version"], str) and body["version"]
 
 
 def test_evaluate_empty_input_returns_all_registry_rules() -> None:

@@ -2,7 +2,7 @@
  * Inspection API client. All calls go through apiUrl() — no hardcoded hosts.
  */
 import { apiUrl } from "./api";
-import type { ApiErrorDetail, Inspection, UploadSuccess } from "../types/api";
+import type { ApiErrorDetail, Evaluation, Inspection, UploadSuccess } from "../types/api";
 
 const MAX_SIZE_MB = 20;
 export const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "application/pdf"];
@@ -71,4 +71,16 @@ export async function fetchInspection(inspectionId: string): Promise<Inspection>
 
 export function inspectionImageUrl(inspectionId: string): string {
   return apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/image`);
+}
+
+/** Run a new automated evaluation version over the persisted inspection. */
+export async function evaluateInspection(inspectionId: string): Promise<Evaluation> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/evaluate`),
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as Evaluation;
 }

@@ -6,8 +6,10 @@ Tesseract installed. The stub returns fixed fixture OCR payloads clearly
 used only for testing orchestration — production never fabricates OCR.
 """
 import io
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +25,22 @@ def png_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _fake_ocr_blocks() -> list[dict]:
+    return [
+        {
+            "id": "block_001",
+            "text": "MRP ₹68.00",
+            "confidence": 96.4,
+            "bbox": {"x": 124, "y": 82, "width": 280, "height": 54},
+            "line_number": 1,
+            "block_number": 4,
+            "page_number": 1,
+        }
+    ]
+
+
 def _fake_ocr_payload() -> dict:
+    blocks = _fake_ocr_blocks()
     return {
         "status": "success",
         "document_type": "image",
@@ -32,18 +49,8 @@ def _fake_ocr_payload() -> dict:
                 "page_number": 1,
                 "width": 800,
                 "height": 400,
-                "full_text": "MRP ₹68.00",
-                "blocks": [
-                    {
-                        "id": "block_001",
-                        "text": "MRP ₹68.00",
-                        "confidence": 96.4,
-                        "bbox": {"x": 124, "y": 82, "width": 280, "height": 54},
-                        "line_number": 1,
-                        "block_number": 4,
-                        "page_number": 1,
-                    }
-                ],
+                "full_text": "\n".join(b["text"] for b in blocks),
+                "blocks": blocks,
             }
         ],
         "metadata": {"processing_time_ms": 5},
@@ -170,6 +177,62 @@ def stub_ai():
     settings.ai_service_url = original_url
     settings.ai_timeout_seconds = original_timeout
     server.shutdown()
+
+
+@pytest.fixture(scope="module")
+def real_legal_engine():
+    """Run the actual legal-engine service (real rule evaluators) on a free port.
+
+    The legal-engine and backend packages are both named `app`, so an
+    in-process import would collide; a subprocess keeps each service's own
+    environment. Every rule outcome the tests assert is therefore the REAL
+    evaluator's — no legal logic is duplicated or mocked.
+    """
+    import socket
+
+    import httpx
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    proc = subprocess.Popen(
+        [
+            str(Path(__file__).resolve().parents[2] / "legal-engine" / ".venv" / "Scripts" / "python.exe"),
+            "-m",
+            "uvicorn",
+            "app.main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
+        ],
+        cwd=str(Path(__file__).resolve().parents[2] / "legal-engine"),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(50):
+        try:
+            if httpx.get(f"{base}/health", timeout=1).status_code == 200:
+                break
+        except httpx.HTTPError:
+            pass
+        import time
+
+        time.sleep(0.2)
+    settings = get_settings()
+    original_url, original_timeout = settings.legal_engine_url, settings.legal_engine_timeout_seconds
+    settings.legal_engine_url = base
+    yield base
+    settings.legal_engine_url = original_url
+    settings.legal_engine_timeout_seconds = original_timeout
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 @pytest.fixture()

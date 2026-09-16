@@ -1,4 +1,5 @@
-"""Database models (Phase 1 foundation + Phase 2 OCR)."""
+"""Database models (Phase 1 foundation, Phase 2 OCR, Phase 3+4 extraction,
+Phase 6 evaluation)."""
 import enum
 from datetime import datetime
 
@@ -71,6 +72,9 @@ class Inspection(Base):
         back_populates="inspection", cascade="all, delete-orphan"
     )
     extracted_fields: Mapped[list["ExtractedField"]] = relationship(
+        back_populates="inspection", cascade="all, delete-orphan"
+    )
+    evaluations: Mapped[list["InspectionEvaluation"]] = relationship(
         back_populates="inspection", cascade="all, delete-orphan"
     )
 
@@ -229,3 +233,89 @@ class OCRBlock(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     inspection: Mapped[Inspection] = relationship(back_populates="ocr_blocks")
+
+
+class InspectionEvaluation(Base):
+    """One automated compliance evaluation run over an inspection (Phase 6).
+
+    Records are immutable: re-evaluation appends a new row with a bumped
+    evaluation_version — earlier evaluations are never updated or deleted,
+    so the historical automated result is always preserved. Retrieval shows
+    the latest version; officer corrections (later phase) must be stored
+    separately, never spliced into these records.
+    """
+
+    __tablename__ = "inspection_evaluations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inspection_id: Mapped[int] = mapped_column(
+        ForeignKey("inspections.id"), nullable=False, index=True
+    )
+    evaluation_version: Mapped[int] = mapped_column(nullable=False, default=1)
+    engine_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Backend-derived rollup: COMPLIANT | NON_COMPLIANT | REVIEW_REQUIRED |
+    # INCOMPLETE. Not a score, not a certification — see overall_status().
+    overall_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    inspection: Mapped[Inspection] = relationship(back_populates="evaluations")
+    rule_results: Mapped[list["RuleEvaluation"]] = relationship(
+        back_populates="evaluation", cascade="all, delete-orphan"
+    )
+
+
+class RuleEvaluation(Base):
+    """One rule's automated result within an evaluation (immutable)."""
+
+    __tablename__ = "rule_evaluations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inspection_evaluation_id: Mapped[int] = mapped_column(
+        ForeignKey("inspection_evaluations.id"), nullable=False, index=True
+    )
+    rule_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    rule_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    rule_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    finding: Mapped[str] = mapped_column(Text, nullable=False)
+    required_information: Mapped[list | None] = mapped_column(JSON, default=None)
+    actual_information: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # 0-1 as produced by the legal engine (None when the engine reports none).
+    confidence: Mapped[float | None] = mapped_column(Numeric(4, 3))
+    requires_officer_verification: Mapped[bool] = mapped_column(default=False)
+    source: Mapped[dict | None] = mapped_column(JSON, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    evaluation: Mapped[InspectionEvaluation] = relationship(back_populates="rule_results")
+    evidence: Mapped[list["RuleEvaluationEvidence"]] = relationship(
+        back_populates="rule_evaluation", cascade="all, delete-orphan"
+    )
+
+
+class RuleEvaluationEvidence(Base):
+    """Reference from a rule result back to its supporting data.
+
+    Stores references only — OCR block ids, extracted-field ids — never a
+    duplicate of the underlying text or coordinates.
+    """
+
+    __tablename__ = "rule_evaluation_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rule_evaluation_id: Mapped[int] = mapped_column(
+        ForeignKey("rule_evaluations.id"), nullable=False, index=True
+    )
+    # extracted_field | ocr_block | visual_measurement | schedule
+    evidence_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Human-readable reference (field name, measurement key, schedule name).
+    evidence_reference: Mapped[str | None] = mapped_column(String(255))
+    ocr_block_id: Mapped[str | None] = mapped_column(String(32))
+    page_number: Mapped[int | None] = mapped_column()
+    extracted_field_id: Mapped[int | None] = mapped_column(
+        ForeignKey("extracted_fields.id"), nullable=True
+    )
+    source_page: Mapped[int | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    rule_evaluation: Mapped[RuleEvaluation] = relationship(back_populates="evidence")
