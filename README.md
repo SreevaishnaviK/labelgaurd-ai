@@ -5,7 +5,7 @@ AI-powered compliance inspection for packaged commodity labels. **Analyze. Verif
 LabelGuard AI inspects packaged-commodity labels, extracts declared information, evaluates Legal
 Metrology requirements, and produces evidence-backed assessments for officer verification.
 
-> **Status: Phase 6 — Full compliance evaluation pipeline.** Upload a real label and the backend
+> **Status: Phase 7 — Computer Vision evidence layer.** Upload a real label and the backend
 > stores the original, runs preprocessing + Tesseract OCR in the computer-vision service, extracts
 > structured fields in the AI service (deterministic patterns, optionally AI-assisted), then calls
 > the legal engine to evaluate the extracted information against the implemented Legal Metrology
@@ -99,6 +99,49 @@ OCR persisted (Phase 2)
 
 ```http
 POST /api/v1/extract                # ai service: OCR pages in → structured fields out
+```
+
+## Phase 7 — Computer Vision evidence layer
+
+```text
+Inspection persisted (OCR + extraction)
+  → POST /api/v1/inspections/{id}/evidence (backend)
+      sends processed-image refs + OCR blocks + extraction evidence
+  → POST /api/v1/evidence/analyze (computer-vision, http://computer-vision:8001)
+      package boundary · candidate PDP · text heights · readability ·
+      contrast · declaration regions
+  → VisualEvidenceRecord rows persisted (migration 0007)
+  → measurements join the legal-engine evaluation input (calibrated
+    physical values only) and display in the Visual Evidence panel
+```
+
+- **Evidence types:** `BOUNDARY` (package/label quadrilateral), `PDP_AREA`
+  (Candidate Principal Display Panel — pixel area, plus cm² **only** when a
+  real calibration was supplied), `TEXT_HEIGHT` (estimated pixel height of
+  the most prominent text; mm only with calibration), `READABILITY`
+  (variance-of-Laplacian blur metric + local rms contrast per text region),
+  `CONTRAST` (Otsu luminance split, normalized 0–1), `DECLARATION_REGION`
+  (extracted field joined to its anchor OCR blocks' geometry).
+- **Units and calibration:** pixels are never presented as physical units.
+  A physical value (cm², mm) exists only when a calibration (`px_per_mm` +
+  documented source) is provided to the CV endpoint. No calibration source
+  is wired yet, so physical values stay absent and the Legal Engine keeps
+  returning NOT_VERIFIABLE / REVIEW_REQUIRED for physical checks — by
+  design. `measured_quantity` is **never** produced from an image.
+- **Confidence semantics:** CV confidence is detection confidence, separate
+  from OCR / extraction / AI confidences. Nothing is combined into a score.
+- **Legal-engine integration:** the backend maps persisted measurements onto
+  the evaluation input's `visual_evidence` (`contrast_measurements`,
+  `readability_measurements`, `declaration_regions`, PDP detection). Rule 9-A
+  reports the measured contrast (review still required — no verified legal
+  threshold exists); Rule 7/8/11 behavior is unchanged and conservative.
+  **Computer Vision provides visual measurements and evidence. It does not
+  determine legal compliance.**
+- **Key APIs added:**
+
+```http
+POST /api/v1/inspections/{id}/evidence    # run + persist visual evidence
+POST /api/v1/evidence/analyze             # (computer-vision) measure a page
 ```
 
 ## Phase 4 — AI-assisted extraction
@@ -312,7 +355,8 @@ alembic revision --autogenerate -m "initial schema" # create a new migration
 Phase 1 models: `Inspection`, `Product` (nullable fields), and `AuditLog`. Phase 2 extends
 `Inspection` with file/processing metadata and adds `OCRDocument` + `OCRBlock`. Phase 3+4 add
 `ExtractedField`, `ExtractedFieldEvidence`, and `ExtractionCandidate`. Phase 6 adds the immutable
-evaluation trio: `InspectionEvaluation`, `RuleEvaluation`, `RuleEvaluationEvidence`.
+evaluation trio: `InspectionEvaluation`, `RuleEvaluation`, `RuleEvaluationEvidence`. Phase 7 adds
+`VisualEvidenceRecord` (CV measurements with units, methods, and verification status).
 
 ## Health checks
 
@@ -351,8 +395,9 @@ Interactive docs for each service:
 | 3     | Structured information extraction + evidence linking         | Done           |
 | 4     | AI-assisted extraction (provider abstraction, fallback)      | Done           |
 | 5     | Legal engine foundation + verified schedule data             | Done           |
-| 6     | End-to-end compliance evaluation + persistence + UI          | **Current**    |
-| 7     | Officer verification workflow, reporting                     | Planned        |
+| 6     | End-to-end compliance evaluation + persistence + UI          | Done           |
+| 7     | Computer Vision evidence layer (PDP, heights, contrast)      | **Current**    |
+| 8     | Officer verification workflow, reporting                     | Planned        |
 
 ## Tests
 

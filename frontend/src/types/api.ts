@@ -86,6 +86,24 @@ export type RuleEvaluationStatus =
   | "NOT_VERIFIABLE"
   | "NOT_APPLICABLE";
 
+/** One measured/observed visual fact from the CV evidence layer. Pixel
+ * values stay pixels; physical units appear only with real calibration. */
+export type VisualEvidence = {
+  evidence_id: string;
+  evidence_type: string;
+  page_number: number;
+  bbox: BBox | null;
+  value: number | string | null;
+  unit: string | null;
+  confidence: number | null;
+  method: string;
+  verification_status: "AUTOMATED" | "INSUFFICIENT_EVIDENCE";
+  ocr_block_id: string | null;
+  ocr_block_ids: string[];
+  field_name: string | null;
+  note: string | null;
+};
+
 /** Reference from a rule result to its supporting data. */
 export type RuleEvidence = {
   evidence_type: string;
@@ -141,6 +159,7 @@ export type Inspection = {
     fields: ExtractedField[];
   };
   evaluation: Evaluation | null;
+  visual_evidence: VisualEvidence[];
 };
 
 export type UploadSuccess = {

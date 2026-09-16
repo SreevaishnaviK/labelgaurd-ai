@@ -51,6 +51,8 @@ def _fake_ocr_payload() -> dict:
                 "height": 400,
                 "full_text": "\n".join(b["text"] for b in blocks),
                 "blocks": blocks,
+                "processed_image": "processed/stub-doc/page-1.png",
+                "warped": False,
             }
         ],
         "metadata": {"processing_time_ms": 5},

@@ -141,6 +141,25 @@ class EvaluationOut(BaseModel):
     results: list[RuleResultOut]
 
 
+class VisualEvidenceOut(BaseModel):
+    """One persisted visual measurement (Phase 7). Pixel values stay pixels;
+    physical units appear only when a real calibration produced them."""
+
+    evidence_id: str
+    evidence_type: str
+    page_number: int
+    bbox: dict | None = None
+    value: float | str | None = None
+    unit: str | None = None
+    confidence: float | None = None
+    method: str
+    verification_status: str
+    ocr_block_id: str | None = None
+    ocr_block_ids: list[str] = []
+    field_name: str | None = None
+    note: str | None = None
+
+
 class InspectionOut(BaseModel):
     inspection_id: str
     status: str
@@ -150,6 +169,8 @@ class InspectionOut(BaseModel):
     extraction: ExtractionOut
     # Latest automated evaluation, when one has been run.
     evaluation: EvaluationOut | None = None
+    # Persisted visual measurements, when evidence analysis has been run.
+    visual_evidence: list[VisualEvidenceOut] = []
 
 
 class UploadErrorResponse(BaseModel):

@@ -1,5 +1,5 @@
 """Database models (Phase 1 foundation, Phase 2 OCR, Phase 3+4 extraction,
-Phase 6 evaluation)."""
+Phase 6 evaluation, Phase 7 visual evidence)."""
 import enum
 from datetime import datetime
 
@@ -75,6 +75,9 @@ class Inspection(Base):
         back_populates="inspection", cascade="all, delete-orphan"
     )
     evaluations: Mapped[list["InspectionEvaluation"]] = relationship(
+        back_populates="inspection", cascade="all, delete-orphan"
+    )
+    visual_evidence: Mapped[list["VisualEvidenceRecord"]] = relationship(
         back_populates="inspection", cascade="all, delete-orphan"
     )
 
@@ -319,3 +322,39 @@ class RuleEvaluationEvidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     rule_evaluation: Mapped[RuleEvaluation] = relationship(back_populates="evidence")
+
+
+class VisualEvidenceRecord(Base):
+    """One measured/observed visual fact from the CV evidence layer (Phase 7).
+
+    Pixel measurements stay pixels; physical units exist only when a real
+    calibration produced them (the method records the source). Rows are
+    regenerated per evidence run — the CV service measures, the Legal Engine
+    interprets, and neither fabricates.
+    """
+
+    __tablename__ = "visual_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inspection_id: Mapped[int] = mapped_column(
+        ForeignKey("inspections.id"), nullable=False, index=True
+    )
+    evidence_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    # PDP_AREA | TEXT_HEIGHT | DECLARATION_REGION | CONTRAST | READABILITY |
+    # BOUNDARY | PACKAGE_DIMENSION | QUANTITY_MEASUREMENT
+    evidence_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    page_number: Mapped[int] = mapped_column(nullable=False, default=1)
+    bbox_json: Mapped[dict | None] = mapped_column(JSON, default=None)
+    value_numeric: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    value_text: Mapped[str | None] = mapped_column(Text)
+    unit: Mapped[str | None] = mapped_column(String(32))
+    confidence: Mapped[float | None] = mapped_column(Numeric(4, 3))
+    method: Mapped[str] = mapped_column(String(64), nullable=False)
+    verification_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    ocr_block_id: Mapped[str | None] = mapped_column(String(32))
+    ocr_block_ids: Mapped[list | None] = mapped_column(JSON, default=None)
+    field_name: Mapped[str | None] = mapped_column(String(64))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    inspection: Mapped[Inspection] = relationship(back_populates="visual_evidence")

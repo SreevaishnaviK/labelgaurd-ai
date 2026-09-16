@@ -17,8 +17,9 @@ from app.schemas.inspection import (
     OCRBlockOut,
     OCRPageOut,
     UploadSuccess,
+    VisualEvidenceOut,
 )
-from app.services import evaluation_service, inspection_service
+from app.services import evaluation_service, evidence_service, inspection_service
 from app.services.evaluation_service import latest_evaluation
 from app.services.inspection_service import average_confidence, get_extracted_fields
 
@@ -109,6 +110,7 @@ def _to_out(inspection, session: Session) -> InspectionOut:
         for field in get_extracted_fields(session, inspection)
     ]
     latest = latest_evaluation(session, inspection)
+    visual_records = evidence_service.get_visual_evidence(session, inspection)
     return InspectionOut(
         inspection_id=inspection.inspection_id,
         status=inspection.processing_status.value,
@@ -130,6 +132,7 @@ def _to_out(inspection, session: Session) -> InspectionOut:
             if latest
             else None
         ),
+        visual_evidence=evidence_service.evidence_out(visual_records),
     )
 
 
@@ -152,6 +155,23 @@ def evaluate_inspection(inspection_id: str, session: Session = Depends(get_db)) 
     return EvaluationOut(
         inspection_id=inspection.inspection_id, **evaluation_service.evaluation_out(evaluation)
     )
+
+
+@router.post("/{inspection_id}/evidence", response_model=list[VisualEvidenceOut])
+def analyze_inspection_evidence(inspection_id: str, session: Session = Depends(get_db)) -> list[VisualEvidenceOut]:
+    """Run CV evidence analysis and persist the measurements.
+
+    CV failure leaves the inspection intact — evidence is optional and can
+    be re-run at any time.
+    """
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    try:
+        records = evidence_service.run_evidence_analysis(session, inspection)
+    except (evidence_service.CVServiceError, evidence_service.CVRejectionError) as exc:
+        code = "CV_SERVICE_UNAVAILABLE" if isinstance(exc, evidence_service.CVServiceError) else exc.code
+        raise HTTPException(status_code=503, detail={"code": code, "message": exc.message}) from exc
+    session.commit()
+    return [VisualEvidenceOut(**item) for item in evidence_service.evidence_out(records)]
 
 
 @router.get("/{inspection_id}/evaluation", response_model=EvaluationOut)

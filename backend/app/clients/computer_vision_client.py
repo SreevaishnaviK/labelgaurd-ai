@@ -36,6 +36,12 @@ class CVAnalysisResult:
     processing_time_ms: int = 0
 
 
+@dataclass
+class CVEvidenceResult:
+    inspection_id: str
+    evidence: list[dict] = field(default_factory=list)
+
+
 def analyze_document(
     *,
     filename: str,
@@ -72,3 +78,38 @@ def analyze_document(
         pages=body.get("pages", []),
         processing_time_ms=int(body.get("metadata", {}).get("processing_time_ms", 0)),
     )
+
+
+def analyze_evidence(
+    *,
+    inspection_id: str,
+    pages: list[dict],
+    fields: list[dict],
+) -> CVEvidenceResult:
+    """Request visual evidence over already-persisted OCR data.
+
+    Sends processed-image references, OCR blocks, and extracted-field
+    evidence — never the original upload, never a re-OCR request.
+    """
+    settings = get_settings()
+    url = f"{settings.cv_service_url}/api/v1/evidence/analyze"
+    payload = {"inspection_id": inspection_id, "pages": pages, "fields": fields}
+    try:
+        response = httpx.post(url, json=payload, timeout=settings.cv_timeout_seconds)
+    except httpx.TimeoutException as exc:
+        raise CVServiceError("Computer Vision service timed out.") from exc
+    except httpx.HTTPError as exc:
+        raise CVServiceError("Computer Vision service is unavailable.") from exc
+    if response.status_code != 200:
+        if response.status_code >= 500:
+            # 5xx from the CV service is a service failure, not a rejection.
+            raise CVServiceError(f"Computer Vision evidence analysis failed ({response.status_code}).")
+        try:
+            detail = response.json().get("detail", {})
+            code = detail.get("code", "CV_EVIDENCE_ERROR") if isinstance(detail, dict) else "CV_EVIDENCE_ERROR"
+            message = detail.get("message", "Computer Vision rejected the evidence request.") if isinstance(detail, dict) else "Computer Vision rejected the evidence request."
+        except Exception:
+            code, message = "CV_EVIDENCE_ERROR", "Computer Vision rejected the evidence request."
+        raise CVRejectionError(code, message)
+    body = response.json()
+    return CVEvidenceResult(inspection_id=body.get("inspection_id", inspection_id), evidence=body.get("evidence", []))

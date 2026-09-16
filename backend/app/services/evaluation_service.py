@@ -26,7 +26,9 @@ from app.models.inspection import (
     InspectionEvaluation,
     RuleEvaluation,
     RuleEvaluationEvidence,
+    VisualEvidenceRecord,
 )
+from app.services import evidence_service
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +210,27 @@ def overall_status(results: list[dict]) -> str:
     return "COMPLIANT"
 
 
+def _attach_visual_evidence(
+    results: list[dict],
+    visual_records: list[VisualEvidenceRecord],
+) -> None:
+    """Give Rule 9's contrast result its supporting measurement as evidence."""
+    measurements = [
+        r for r in visual_records if r.evidence_type == "CONTRAST" and r.ocr_block_id
+    ]
+    if not measurements:
+        return
+    for result in results:
+        if result.get("rule_id") == "LMPC-R9-A":
+            result["evidence"] = list(result.get("evidence") or []) + [
+                {
+                    "field_name": "contrast_measurement",
+                    "ocr_block_ids": [r.ocr_block_id for r in measurements],
+                    "extraction_confidence": None,
+                }
+            ]
+
+
 def _parse_confidence(raw: object) -> float | None:
     """Legal engine confidences arrive as 0-100 or 0-1; store 0-1 or None."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
@@ -261,6 +284,18 @@ def _persist(
             name = ref.get("field_name")
             if name and name in field_id_map:
                 rows = _evidence_rows(field_map[name], field_id_map)
+            elif ref.get("ocr_block_ids"):
+                # Visual-measurement provenance: raw block references without
+                # an owning extracted field (e.g. contrast measurements).
+                for block_id in ref["ocr_block_ids"]:
+                    rows.append(
+                        {
+                            "evidence_type": "ocr_block",
+                            "evidence_reference": str(block_id),
+                            "ocr_block_id": str(block_id),
+                            "page_number": ref.get("page_number"),
+                        }
+                    )
             elif ref.get("ocr_block_id"):
                 block_id = str(ref["ocr_block_id"])
                 rows = [
@@ -337,12 +372,17 @@ def evaluate_inspection(session: Session, inspection: Inspection) -> InspectionE
         raise ExtractionUnavailableError("No extraction available for this inspection.")
 
     payload, field_map, key_to_field = build_evaluation_input(inspection, fields)
+    # Phase 7: persisted visual measurements join the input — only calibrated
+    # physical values and objective metrics; never invented, never pixels-as-mm.
+    visual_records = evidence_service.get_visual_evidence(session, inspection)
+    evidence_service.attach_to_evaluation_input(visual_records, payload["visual_evidence"])
     try:
         engine = legal_engine_client.evaluate(payload)
     except LegalEngineError:
         raise
     results = engine.results
     _attach_field_evidence(results, field_map, key_to_field)
+    _attach_visual_evidence(results, visual_records)
 
     # Persisted field ids for evidence rows.
     field_id_map = {field.field_name: field.id for field in fields}

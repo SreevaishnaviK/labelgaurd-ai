@@ -33,12 +33,25 @@ def _definition(rule_id: str, title: str, description: str) -> RuleDefinition:
 def _evaluate_contrast(data: EvaluationInput) -> RuleResult:
     rule = RULE_9_RULES[0][0]
     ratio = data.visual_evidence.contrast_ratio
-    if ratio is None:
+    measurements = data.visual_evidence.contrast_measurements
+    if ratio is None and not measurements:
         return support.result(
             rule,
             "REVIEW_REQUIRED",
             "Legibility and prominence are visual judgments; no contrast "
             "measurement was supplied, so a human must review the label.",
+            officer_verification=True,
+        )
+    values = [float(m["contrast"]) for m in measurements if isinstance(m.get("contrast"), (int, float))]
+    if ratio is None:
+        ratio = min(values) if values else None  # weakest region is the binding one
+    if ratio is None:
+        return support.result(
+            rule,
+            "REVIEW_REQUIRED",
+            "Contrast measurements were supplied but none carried a usable "
+            "value; requires review.",
+            actual={"measurements": len(measurements)},
             officer_verification=True,
         )
     # A measured contrast exists, but Rule 9's exact requirement has not been
@@ -48,7 +61,10 @@ def _evaluate_contrast(data: EvaluationInput) -> RuleResult:
         "REVIEW_REQUIRED",
         "Contrast was measured but the Rule 9 requirement has not yet been "
         "verified against the supplied PDF; requires review.",
-        actual={"measured_contrast_ratio": ratio},
+        actual={
+            "measured_contrast_ratio": ratio,
+            "measurement_count": len(measurements) or 1,
+        },
         officer_verification=True,
     )
 

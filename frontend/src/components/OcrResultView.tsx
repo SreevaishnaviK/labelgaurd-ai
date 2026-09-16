@@ -11,9 +11,10 @@ import {
   Loader2,
 } from "lucide-react";
 import CompliancePanel from "./CompliancePanel";
+import { findEvidenceBlock, VisualEvidenceCard } from "./VisualEvidencePanel";
 import { evaluateInspection, fetchInspection, inspectionImageUrl } from "../lib/inspections";
 import { apiUrl } from "../lib/api";
-import type { Evaluation, ExtractedField, Inspection, OCRBlock, SystemStatus } from "../types/api";
+import type { Evaluation, ExtractedField, Inspection, OCRBlock, SystemStatus, VisualEvidence } from "../types/api";
 
 const btnPrimary =
   "inline-flex items-center justify-center gap-2 rounded-lg bg-brand-dark px-5 py-2.5 text-sm font-medium text-brand-white transition-colors hover:bg-brand-green";
@@ -247,12 +248,14 @@ function ImageEvidence({
   onSelectBlock,
   showBoxes,
   overlayRef,
+  evidenceBoxes,
 }: {
   inspection: Inspection;
   activeBlock: OCRBlock | null;
   onSelectBlock: (block: OCRBlock | null) => void;
   showBoxes: boolean;
   overlayRef: React.RefObject<HTMLDivElement | null>;
+  evidenceBoxes: VisualEvidence[];
 }) {
   const page = inspection.ocr.pages[0];
   const url = inspectionImageUrl(inspection.inspection_id);
@@ -279,6 +282,23 @@ function ImageEvidence({
       />
       {showBoxes && usable && (
         <div ref={overlayRef} className="absolute inset-0">
+          {evidenceBoxes.map((item) => (
+            <div
+              key={item.evidence_id}
+              className={`pointer-events-none absolute border-2 border-dashed ${
+                activeBlock &&
+                (item.ocr_block_ids.includes(activeBlock.block_id) || item.ocr_block_id === activeBlock.block_id)
+                  ? "border-brand-dark bg-brand-dark/5"
+                  : "border-brand-dark/40"
+              }`}
+              style={{
+                left: `${(item.bbox!.x / pageWidth) * 100}%`,
+                top: `${(item.bbox!.y / pageHeight) * 100}%`,
+                width: `${(item.bbox!.width / pageWidth) * 100}%`,
+                height: `${(item.bbox!.height / pageHeight) * 100}%`,
+              }}
+            />
+          ))}
           {inspection.ocr.blocks.map((block) => {
             const isActive = activeBlock?.block_id === block.block_id;
             return (
@@ -317,6 +337,8 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [evaluateError, setEvaluateError] = useState<string | null>(null);
+  const [activeEvidenceItem, setActiveEvidenceItem] = useState<VisualEvidence | null>(null);
+  const [evidenceOverlay, setEvidenceOverlay] = useState(true);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const toggleBoxes = () => {
@@ -332,6 +354,20 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
     () => new Map((inspection?.ocr.blocks ?? []).map((b) => [b.block_id, b])),
     [inspection],
   );
+
+  // An evidence card selects its anchor OCR block — one coordinate system.
+  const evidenceActiveBlock = useMemo(
+    () => (activeEvidenceItem ? findEvidenceBlock(activeEvidenceItem, blocksById) : null),
+    [activeEvidenceItem, blocksById],
+  );
+  const effectiveActiveBlock = evidenceActiveBlock ?? activeBlock;
+
+  const evidenceBoxes = useMemo(() => {
+    if (!inspection) return [];
+    return inspection.visual_evidence.filter(
+      (item) => item.bbox && item.verification_status === "AUTOMATED" && item.evidence_type !== "DECLARATION_REGION",
+    );
+  }, [inspection]);
 
   const runEvaluation = async () => {
     setEvaluating(true);
@@ -356,6 +392,7 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
         if (!cancelled) {
           setInspection(data);
           setEvaluation(data.evaluation ?? null);
+          setActiveEvidenceItem(null);
         }
       })
       .catch((err: Error) => {
@@ -446,22 +483,36 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
             <h2 id="evidence-heading" className="text-lg font-medium text-brand-dark">
               Original Label
             </h2>
-            <button
-              type="button"
-              onClick={toggleBoxes}
-              className={btnSecondary}
-              aria-pressed={showBoxes}
-            >
-              {showBoxes ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              {showBoxes ? "Hide boxes" : "Show boxes"}
-            </button>
+            <div className="flex gap-2">
+              {evidenceBoxes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setEvidenceOverlay((value) => !value)}
+                  className={btnSecondary}
+                  aria-pressed={evidenceOverlay}
+                >
+                  {evidenceOverlay ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {evidenceOverlay ? "Hide evidence" : "Show evidence"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={toggleBoxes}
+                className={btnSecondary}
+                aria-pressed={showBoxes}
+              >
+                {showBoxes ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showBoxes ? "Hide boxes" : "Show boxes"}
+              </button>
+            </div>
           </div>
           <ImageEvidence
             inspection={inspection}
-            activeBlock={activeBlock}
+            activeBlock={effectiveActiveBlock}
             onSelectBlock={setActiveBlock}
             showBoxes={showBoxes}
             overlayRef={overlayRef}
+            evidenceBoxes={evidenceOverlay ? evidenceBoxes : []}
           />
 
           {inspection.ocr.pages[0]?.warped && (
@@ -535,6 +586,34 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
         aiStatus={systemStatus?.ai ?? null}
         aiProvider={systemStatus?.ai_provider ?? null}
       />
+
+      {inspection.visual_evidence.length > 0 && (
+        <section
+          className="mt-6 rounded-2xl border border-brand-border bg-brand-white p-6"
+          aria-labelledby="visual-evidence-heading"
+        >
+          <h2 id="visual-evidence-heading" className="text-lg font-medium text-brand-dark">
+            Visual Evidence
+          </h2>
+          <p className="mt-1 text-sm text-brand-muted">
+            Automated measurements from the label image. Pixel values are
+            estimates — physical units appear only with a real calibration.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {inspection.visual_evidence.map((item) => (
+              <VisualEvidenceCard
+                key={item.evidence_id}
+                item={item}
+                isActive={activeEvidenceItem?.evidence_id === item.evidence_id}
+                onSelect={(selected) => {
+                  setActiveEvidenceItem(selected);
+                  setActiveBlock(null);
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <CompliancePanel
         evaluation={evaluation}

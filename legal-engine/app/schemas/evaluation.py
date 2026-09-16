@@ -90,6 +90,11 @@ class VisualEvidence(BaseModel):
     # Measured text/background contrast for a declaration region (0-21 scale),
     # when the CV pipeline provides it.
     contrast_ratio: float | None = None
+    # Phase 7: per-region objective measurements from the CV evidence layer.
+    # The engine reports them and applies only verified thresholds — never
+    # invented ones.
+    contrast_measurements: list[dict[str, Any]] = Field(default_factory=list)
+    readability_measurements: list[dict[str, Any]] = Field(default_factory=list)
     # Language(s) the declarations were read in, when determined (e.g. "en").
     declaration_language: str | None = None
     # OCR evidence refs (block ids) supporting the structured fields.
