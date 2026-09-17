@@ -8,13 +8,14 @@ automated results; both are reported, neither replaces the other.
 from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import String, cast, func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import String, and_, case, cast, func, or_, select
+from sqlalchemy.orm import Session
 
 from app.models.inspection import (
     ExtractedField,
     Inspection,
     InspectionEvaluation,
+    OfficerDecision,
     OfficerVerification,
     RuleEvaluation,
 )
@@ -175,6 +176,96 @@ def _search_matching_ids(session: Session, search: str):
     )
 
 
+def _rollup_expr(violation_flag, review_flag, incomplete_flag):
+    """Inspection-level rollup over rule-status flags, mirroring the
+    evaluation services' overall_status(): NON_COMPLIANT on any violation,
+    else REVIEW_REQUIRED, else INCOMPLETE, else COMPLIANT. Never a score."""
+    return case(
+        (violation_flag == 1, "NON_COMPLIANT"),
+        (review_flag == 1, "REVIEW_REQUIRED"),
+        (incomplete_flag == 1, "INCOMPLETE"),
+        else_="COMPLIANT",
+    )
+
+
+def _rule_effective_expr():
+    """Per-rule effective status in SQL, mirroring
+    verification_service.effective_status_for(): the latest verification's
+    decision (highest id) drives the outcome; without one — or on ACCEPT —
+    the automated status stands."""
+    latest_decision = (
+        select(OfficerVerification.decision)
+        .where(OfficerVerification.rule_evaluation_id == RuleEvaluation.id)
+        .order_by(OfficerVerification.id.desc())
+        .limit(1)
+        .scalar_subquery()
+        .correlate(RuleEvaluation)
+    )
+    return case(
+        (latest_decision == OfficerDecision.OVERRIDE_COMPLIANT.value, "COMPLIANT"),
+        (latest_decision == OfficerDecision.OVERRIDE_VIOLATION.value, "VIOLATION"),
+        (latest_decision == OfficerDecision.CONFIRM_REVIEW_REQUIRED.value, "REVIEW_REQUIRED"),
+        (latest_decision == OfficerDecision.CONFIRM_NOT_VERIFIABLE.value, "NOT_VERIFIABLE"),
+        (latest_decision == OfficerDecision.CONFIRM_NOT_APPLICABLE.value, "NOT_APPLICABLE"),
+        else_=RuleEvaluation.status,
+    )
+
+
+def _status_per_inspection_sq():
+    """Automated + officer-effective rollups for each inspection's LATEST
+    evaluation, computed in SQL so filters apply before pagination.
+
+    Rows are (inspection_id, automated_status, effective_rollup, has_verif).
+    Inspections without an evaluation produce no row here (outer-joined away
+    as NULL on the inspection side), matching the previous display logic.
+    """
+    latest_version = (
+        select(
+            InspectionEvaluation.inspection_id.label("inspection_id"),
+            func.max(InspectionEvaluation.evaluation_version).label("max_version"),
+        )
+        .group_by(InspectionEvaluation.inspection_id)
+        .subquery()
+    )
+    effective = _rule_effective_expr()
+    rollup = (
+        select(
+            RuleEvaluation.inspection_evaluation_id.label("eval_id"),
+            func.max(case((RuleEvaluation.status == "VIOLATION", 1), else_=0)).label("a_viol"),
+            func.max(case((RuleEvaluation.status == "REVIEW_REQUIRED", 1), else_=0)).label("a_review"),
+            func.max(
+                case((RuleEvaluation.status.in_(("NOT_VERIFIABLE", "NOT_APPLICABLE")), 1), else_=0)
+            ).label("a_incomp"),
+            func.max(case((effective == "VIOLATION", 1), else_=0)).label("e_viol"),
+            func.max(case((effective == "REVIEW_REQUIRED", 1), else_=0)).label("e_review"),
+            func.max(case((effective.in_(("NOT_VERIFIABLE", "NOT_APPLICABLE")), 1), else_=0)).label("e_incomp"),
+            func.max(case((OfficerVerification.id.is_not(None), 1), else_=0)).label("has_verif"),
+        )
+        .select_from(RuleEvaluation)
+        .outerjoin(OfficerVerification, OfficerVerification.rule_evaluation_id == RuleEvaluation.id)
+        .group_by(RuleEvaluation.inspection_evaluation_id)
+        .subquery()
+    )
+    return (
+        select(
+            InspectionEvaluation.inspection_id.label("inspection_id"),
+            latest_version.c.max_version.label("evaluation_version"),
+            _rollup_expr(rollup.c.a_viol, rollup.c.a_review, rollup.c.a_incomp).label("automated_status"),
+            _rollup_expr(rollup.c.e_viol, rollup.c.e_review, rollup.c.e_incomp).label("effective_rollup"),
+            rollup.c.has_verif.label("has_verif"),
+        )
+        .join(
+            latest_version,
+            and_(
+                InspectionEvaluation.inspection_id == latest_version.c.inspection_id,
+                InspectionEvaluation.evaluation_version == latest_version.c.max_version,
+            ),
+        )
+        .outerjoin(rollup, rollup.c.eval_id == InspectionEvaluation.id)
+        .subquery()
+    )
+
+
 def list_inspections(
     session: Session,
     page: int = 1,
@@ -184,7 +275,14 @@ def list_inspections(
     date_to: datetime | None = None,
     search: str | None = None,
 ) -> dict:
-    """Paginated inspection summaries with per-inspection status rollups."""
+    """Paginated inspection summaries with per-inspection status rollups.
+
+    Every filter (status, dates, search) is part of the SQL WHERE clause
+    before LIMIT/OFFSET, so total/pages describe the full filtered set and no
+    matching row can be missed because it lives on another page. Status
+    semantics are unchanged: a row matches when its automated status OR its
+    officer-effective status is in the requested set.
+    """
     page = max(1, page)
     page_size = min(max(1, page_size), 100)
 
@@ -196,38 +294,47 @@ def list_inspections(
     if search and search.strip():
         conditions.append(Inspection.id.in_(_search_matching_ids(session, search)))
 
+    status_sq = _status_per_inspection_sq()
+    if status and status.strip():
+        wanted = {s.strip().upper() for s in status.split(",") if s.strip()}
+        if wanted:
+            conditions.append(
+                Inspection.id.in_(
+                    select(status_sq.c.inspection_id).where(
+                        or_(
+                            status_sq.c.automated_status.in_(wanted),
+                            status_sq.c.effective_rollup.in_(wanted),
+                        )
+                    )
+                )
+            )
+
     base = select(Inspection).where(*conditions)
     total = session.execute(select(func.count()).select_from(base.subquery())).scalar() or 0
+    pages = (total + page_size - 1) // page_size
 
-    inspections = (
-        session.execute(
-            base.order_by(Inspection.created_at.desc(), Inspection.id.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+    rows = session.execute(
+        select(
+            Inspection,
+            status_sq.c.automated_status,
+            status_sq.c.effective_rollup,
+            status_sq.c.has_verif,
+            status_sq.c.evaluation_version,
         )
-        .scalars()
-        .all()
-    )
+        .outerjoin(status_sq, status_sq.c.inspection_id == Inspection.id)
+        .where(*conditions)
+        .order_by(Inspection.created_at.desc(), Inspection.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
 
-    page_ids = [i.id for i in inspections]
+    page_ids = [row[0].id for row in rows]
     display = _display_fields(
         session, page_ids, ["product_name", "manufacturer", "net_quantity", "mrp"]
     )
-    latest_by_inspection = _latest_evaluations(session, page_ids)
-    effective_info = _effective_by_evaluation(
-        session, [e.id for e in latest_by_inspection.values()]
-    )
 
     items = []
-    for inspection in inspections:
-        evaluation = latest_by_inspection.get(inspection.id)
-        automated = evaluation.overall_status if evaluation else None
-        officer_effective = None
-        verification_required = False
-        if evaluation is not None:
-            effective_map, officers_map = effective_info.get(evaluation.id, ({}, {}))
-            officer_effective = _rollup(set(effective_map.values())) if effective_map else automated
-            verification_required = any(v is not None for v in officers_map.values())
+    for inspection, automated, officer_effective, has_verif, evaluation_version in rows:
         items.append(
             {
                 "inspection_id": inspection.inspection_id,
@@ -236,29 +343,13 @@ def list_inspections(
                 "automated_status": automated,
                 "officer_verified_status": officer_effective,
                 "effective_status": officer_effective or automated,
-                "evaluation_version": (
-                    evaluation.evaluation_version if evaluation else None
-                ),
-                "verification_required": verification_required,
-                "has_evaluation": evaluation is not None,
+                "evaluation_version": evaluation_version,
+                "verification_required": bool(has_verif),
+                "has_evaluation": automated is not None,
                 "created_at": inspection.created_at,
                 "updated_at": inspection.updated_at,
             }
         )
-
-    # Status filtering happens on the computed rollups (post-query) so the
-    # filter semantics stay identical to what the rows display.
-    if status:
-        wanted = {s.strip().upper() for s in status.split(",") if s.strip()}
-        items = [
-            item
-            for item in items
-            if item["automated_status"] in wanted or item["effective_status"] in wanted
-        ]
-        total = len(items)
-        pages = 1
-    else:
-        pages = (total + page_size - 1) // page_size
 
     return {"items": items, "page": page, "page_size": page_size, "total": total, "pages": pages}
 
