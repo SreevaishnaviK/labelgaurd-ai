@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # AI-assisted extraction is requested at all.
     extraction_mode: str = "auto"
 
+    # Development-only officer identity (Phase 8). Authentication and RBAC are
+    # deferred — this is a documented placeholder, NOT secure authentication.
+    officer_identifier: str = "officer-dev"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

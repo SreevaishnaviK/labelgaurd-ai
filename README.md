@@ -211,9 +211,87 @@ POST /api/v1/evaluate                     # (legal engine) direct structured eva
   MPE check against verified First Schedule data when a physical measurement is supplied),
   Rule 12 (quantity-unit framework), Rule 13 (unit symbols).
 - **Not yet implemented:** Rules 3–5, 14–18, 24–26, 31, First Schedule Table II MPE values
-  (unverified transcription), physical quantity testing, officer verification workflow, and any
-  form of compliance scoring or legal certification. The engine evaluates only what is
-  implemented; everything else remains out of scope until its data is verified from the source.
+  (unverified transcription), physical quantity testing, and any form of compliance scoring or
+  legal certification. The engine evaluates only what is implemented; everything else remains out
+  of scope until its data is verified from the source.
+
+---
+
+## Phase 7 — Computer vision evidence layer
+
+Computer Vision provides visual measurements and evidence. It does not determine legal
+compliance.
+
+```text
+Persisted processed images + OCR blocks
+  → POST /api/v1/evidence/analyze (computer-vision)
+      boundary → candidate PDP → text geometry → readability/contrast → declaration regions
+  → backend persists VisualEvidenceRecord rows (migration 0007) — references, not copies
+  → evaluation input carries the measurements; rules consume only what exists
+  → frontend Visual Evidence panel + dashed overlay boxes on the label
+```
+
+- **Evidence types:** `BOUNDARY` (package/label contour; `INSUFFICIENT_EVIDENCE` when none is
+  reliable) · `PDP_AREA` (a **Candidate** Principal Display Panel — pixel area always, cm² only
+  with real calibration) · `TEXT_HEIGHT` (estimated pixel height — never presented as
+  millimetres) · `READABILITY` (variance-of-Laplacian blur + local RMS contrast per region) ·
+  `CONTRAST` (Otsu foreground/background luminance split, 0–1) · `DECLARATION_REGION` (extracted
+  field joined to its anchor OCR blocks). `PACKAGE_DIMENSION` / `QUANTITY_MEASUREMENT` are modeled
+  but deliberately unpopulated: no image-based weight or dimension estimation exists.
+- **Calibration rule:** pixels are never silently converted to physical units. cm² / mm values
+  appear only when a genuine calibration source produced the scale; otherwise the physical value
+  is null and the Legal Engine keeps returning `NOT_VERIFIABLE` / `REVIEW_REQUIRED`.
+- **Confidence semantics:** CV confidence is detection confidence — it is never merged with OCR,
+  AI, or legal confidence into any score.
+
+---
+
+## Phase 8 — Officer verification & audit workflow
+
+Officer verification does not modify the original automated assessment. It creates a separate
+human verification record.
+
+```text
+Immutable RuleEvaluation (automated result — engine status, finding, confidence, evidence)
+  → POST /api/v1/inspections/{id}/verifications        # decision + comment (append-only)
+  → POST /api/v1/inspections/{id}/field-verifications  # field-level verify / correct
+  → GET  /api/v1/inspections/{id}/verifications        # full history, newest first
+  → GET  /api/v1/inspections/{id}/audit-log            # append-only audit trail
+  → evaluation responses carry automated result + officer_verification + effective_status
+```
+
+- **Decisions:** `ACCEPT` · `OVERRIDE_COMPLIANT` · `OVERRIDE_VIOLATION` ·
+  `CONFIRM_REVIEW_REQUIRED` · `CONFIRM_NOT_VERIFIABLE` · `CONFIRM_NOT_APPLICABLE`. A `CONFIRM_*`
+  must match the automated status; an **override requires a written reason** (server-enforced).
+- **Effective status (backend-derived, never React):** no verification → the automated status;
+  `ACCEPT` → the automated status; an override → the overridden state. The inspection-level
+  `officer_effective_status` rolls these up with the same rules as the automated overall status.
+  This is a state, not a score — no percentage, no certification.
+- **Immutability:** RuleEvaluation status/finding/confidence/source/evidence and the original
+  extracted field values are never written by officer actions. Corrections live in
+  `FieldVerification.verified_value` ("corrected" requires a value; "verified" records
+  confirmation of the extracted value).
+- **Versioning:** a verification binds to the exact evaluation version it reviewed. Generating
+  evaluation v2 does not silently adopt v1's verifications — the UI shows "Not yet verified" for
+  the new version until an officer reviews it. Older verifications remain in history.
+- **Multiple verifications:** allowed — each decision appends a new record; the latest per rule is
+  the effective one; the full history stays queryable.
+- **Audit log:** every officer action writes an append-only `AuditLog` row (actor, action,
+  decision, previous state, comment, references). Audit rows are never deleted or rewritten.
+- **Evidence references:** verifications may reference an existing OCR block, visual-evidence id,
+  or extracted field id — validated against the same inspection. Cross-inspection references are
+  rejected (`EVALUATION_MISMATCH` / `EVIDENCE_NOT_FOUND`).
+- **Officer identity:** a development-only placeholder identifier is used. **Authentication and
+  role-based access control are deferred to a later phase** — the identifier must not be treated
+  as secure authentication.
+- **Key APIs added:**
+
+```http
+POST /api/v1/inspections/{id}/verifications         # rule verification (decision + comment)
+GET  /api/v1/inspections/{id}/verifications         # all records, newest first
+POST /api/v1/inspections/{id}/field-verifications   # verify / correct an extracted field
+GET  /api/v1/inspections/{id}/audit-log             # append-only audit trail
+```
 
 ---
 
@@ -397,7 +475,7 @@ Interactive docs for each service:
 | 5     | Legal engine foundation + verified schedule data             | Done           |
 | 6     | End-to-end compliance evaluation + persistence + UI          | Done           |
 | 7     | Computer Vision evidence layer (PDP, heights, contrast)      | **Current**    |
-| 8     | Officer verification workflow, reporting                     | Planned        |
+| 8     | Officer verification, field verification, audit workflow     | Complete       |
 
 ## Tests
 

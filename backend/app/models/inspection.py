@@ -1,5 +1,5 @@
 """Database models (Phase 1 foundation, Phase 2 OCR, Phase 3+4 extraction,
-Phase 6 evaluation, Phase 7 visual evidence)."""
+Phase 6 evaluation, Phase 7 visual evidence, Phase 8 officer verification)."""
 import enum
 from datetime import datetime
 
@@ -100,12 +100,29 @@ class Product(Base):
 
 
 class AuditLog(Base):
+    """Append-only audit trail.
+
+    Rows are only ever inserted — officer actions (Phase 8) add new records
+    and never update or delete existing ones, so history cannot be silently
+    rewritten.
+    """
+
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    inspection_id: Mapped[int] = mapped_column(ForeignKey("inspections.id"), nullable=False)
+    inspection_id: Mapped[int] = mapped_column(ForeignKey("inspections.id"), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(255))
     actor: Mapped[str] = mapped_column(String(255))
+    # Phase 8: what the action targeted and what changed.
+    evaluation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("inspection_evaluations.id"), nullable=True, index=True
+    )
+    rule_evaluation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rule_evaluations.id"), nullable=True, index=True
+    )
+    decision: Mapped[str | None] = mapped_column(String(32))
+    previous_state: Mapped[str | None] = mapped_column(String(32))
+    comment: Mapped[str | None] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     inspection: Mapped[Inspection] = relationship(back_populates="audit_logs")
@@ -358,3 +375,86 @@ class VisualEvidenceRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     inspection: Mapped[Inspection] = relationship(back_populates="visual_evidence")
+
+
+class OfficerDecision(str, enum.Enum):
+    """Officer verification decisions (Phase 8).
+
+    ACCEPT and CONFIRM_* record agreement with the automated result;
+    OVERRIDE_* replaces the effective status with the officer's judgment.
+    """
+
+    ACCEPT = "ACCEPT"
+    OVERRIDE_COMPLIANT = "OVERRIDE_COMPLIANT"
+    OVERRIDE_VIOLATION = "OVERRIDE_VIOLATION"
+    CONFIRM_REVIEW_REQUIRED = "CONFIRM_REVIEW_REQUIRED"
+    CONFIRM_NOT_VERIFIABLE = "CONFIRM_NOT_VERIFIABLE"
+    CONFIRM_NOT_APPLICABLE = "CONFIRM_NOT_APPLICABLE"
+
+
+class OfficerVerification(Base):
+    """A human officer's verification of one immutable rule evaluation.
+
+    Stored entirely separately from the RuleEvaluation it reviews — the
+    automated status/finding/confidence/evidence are never modified. New
+    verifications append new rows (history preserved); the latest per
+    (evaluation, rule) pair is the effective decision.
+    """
+
+    __tablename__ = "officer_verifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inspection_id: Mapped[int] = mapped_column(
+        ForeignKey("inspections.id"), nullable=False, index=True
+    )
+    inspection_evaluation_id: Mapped[int] = mapped_column(
+        ForeignKey("inspection_evaluations.id"), nullable=False, index=True
+    )
+    rule_evaluation_id: Mapped[int] = mapped_column(
+        ForeignKey("rule_evaluations.id"), nullable=False, index=True
+    )
+    officer_identifier: Mapped[str] = mapped_column(String(255), nullable=False)
+    decision: Mapped[OfficerDecision] = mapped_column(
+        Enum(OfficerDecision, name="officer_decision", values_callable=_enum_values),
+        nullable=False,
+    )
+    # Required for OVERRIDE_* decisions; optional confirmation note otherwise.
+    comment: Mapped[str | None] = mapped_column(Text)
+    # Optional references to existing evidence the officer relied on.
+    evidence_ocr_block_id: Mapped[str | None] = mapped_column(String(32))
+    evidence_visual_evidence_id: Mapped[str | None] = mapped_column(String(32))
+    evidence_extracted_field_id: Mapped[int | None] = mapped_column(
+        ForeignKey("extracted_fields.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    evaluation: Mapped[InspectionEvaluation] = relationship()
+    rule_evaluation: Mapped[RuleEvaluation] = relationship()
+
+
+class FieldVerification(Base):
+    """An officer's verification of one extracted field.
+
+    The original ExtractedField (value, method, confidences, evidence) is
+    never touched; the verified value — including a correction — lives only
+    here, append-only like rule verifications.
+    """
+
+    __tablename__ = "field_verifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inspection_id: Mapped[int] = mapped_column(
+        ForeignKey("inspections.id"), nullable=False, index=True
+    )
+    extracted_field_id: Mapped[int] = mapped_column(
+        ForeignKey("extracted_fields.id"), nullable=False, index=True
+    )
+    officer_identifier: Mapped[str] = mapped_column(String(255), nullable=False)
+    # verified | corrected
+    verification_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    # The officer-confirmed value, in the same JSON shape as the extraction.
+    verified_value: Mapped[dict | None] = mapped_column(JSON, default=None)
+    comment: Mapped[str | None] = mapped_column(Text)
+    evidence_ocr_block_id: Mapped[str | None] = mapped_column(String(32))
+    evidence_visual_evidence_id: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

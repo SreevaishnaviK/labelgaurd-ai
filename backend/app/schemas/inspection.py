@@ -82,6 +82,8 @@ class FieldCandidateOut(BaseModel):
 class ExtractedFieldOut(BaseModel):
     """One structured field: extraction result, never a legal judgment."""
 
+    # Persisted row id — the reference officers verify against (Phase 8).
+    extracted_field_id: int
     field_name: str
     status: str
     value: dict | None = None
@@ -115,6 +117,7 @@ class RuleEvidenceOut(BaseModel):
 class RuleResultOut(BaseModel):
     """One rule's automated, immutable evaluation result."""
 
+    rule_evaluation_id: int
     rule_id: str
     rule_number: str
     rule_title: str
@@ -127,6 +130,9 @@ class RuleResultOut(BaseModel):
     requires_officer_verification: bool = False
     source: dict = {}
     evidence: list[RuleEvidenceOut] = []
+    # Phase 8: layered beside the automated result, never replacing it.
+    effective_status: str | None = None
+    officer_verification: dict | None = None
 
 
 class EvaluationOut(BaseModel):
@@ -139,6 +145,10 @@ class EvaluationOut(BaseModel):
     overall_status: str
     evaluated_at: datetime
     results: list[RuleResultOut]
+    # Phase 8: backend-derived effective rollup + whether any rule still
+    # awaits officer verification. None when no verification layer ran.
+    officer_effective_status: str | None = None
+    verification_required: bool | None = None
 
 
 class VisualEvidenceOut(BaseModel):
@@ -171,6 +181,73 @@ class InspectionOut(BaseModel):
     evaluation: EvaluationOut | None = None
     # Persisted visual measurements, when evidence analysis has been run.
     visual_evidence: list[VisualEvidenceOut] = []
+    # Phase 8: officer verifications of fields (rules' verifications ride on
+    # the evaluation payload; these are the field-level records).
+    field_verifications: list["FieldVerificationOut"] = []
+
+
+class OfficerVerificationIn(BaseModel):
+    """Create one officer verification of an immutable rule evaluation."""
+
+    rule_evaluation_id: int
+    decision: str
+    comment: str | None = None
+    evidence_ocr_block_id: str | None = None
+    evidence_visual_evidence_id: str | None = None
+    evidence_extracted_field_id: int | None = None
+
+
+class OfficerVerificationOut(BaseModel):
+    id: int
+    inspection_id: str
+    evaluation_id: int
+    rule_evaluation_id: int
+    decision: str
+    comment: str | None = None
+    officer_identifier: str
+    evidence_ocr_block_id: str | None = None
+    evidence_visual_evidence_id: str | None = None
+    evidence_extracted_field_id: int | None = None
+    created_at: datetime
+
+
+class FieldVerificationIn(BaseModel):
+    """Create one officer verification of an extracted field."""
+
+    extracted_field_id: int
+    verification_status: str
+    verified_value: dict | None = None
+    comment: str | None = None
+    evidence_ocr_block_id: str | None = None
+    evidence_visual_evidence_id: str | None = None
+
+
+class FieldVerificationOut(BaseModel):
+    id: int
+    extracted_field_id: int
+    field_name: str
+    verification_status: str
+    verified_value: dict | None = None
+    comment: str | None = None
+    officer_identifier: str
+    evidence_ocr_block_id: str | None = None
+    evidence_visual_evidence_id: str | None = None
+    created_at: datetime
+
+
+class AuditLogOut(BaseModel):
+    """One append-only audit entry."""
+
+    id: int
+    inspection_id: str
+    action: str
+    actor: str
+    evaluation_id: int | None = None
+    rule_evaluation_id: int | None = None
+    decision: str | None = None
+    previous_state: str | None = None
+    comment: str | None = None
+    timestamp: datetime
 
 
 class UploadErrorResponse(BaseModel):

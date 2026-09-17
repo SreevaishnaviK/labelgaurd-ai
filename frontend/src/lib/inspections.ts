@@ -84,3 +84,53 @@ export async function evaluateInspection(inspectionId: string): Promise<Evaluati
   }
   return (await response.json()) as Evaluation;
 }
+
+/** Record one officer decision on an immutable rule evaluation (Phase 8). */
+export async function createRuleVerification(
+  inspectionId: string,
+  payload: {
+    rule_evaluation_id: number;
+    decision: string;
+    comment?: string | null;
+    evidence_ocr_block_id?: string | null;
+    evidence_visual_evidence_id?: string | null;
+    evidence_extracted_field_id?: number | null;
+  },
+): Promise<void> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/verifications`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+}
+
+/** Record one officer verification of an extracted field — the original
+ * extracted value is never modified. */
+export async function createFieldVerification(
+  inspectionId: string,
+  payload: {
+    extracted_field_id: number;
+    verification_status: "verified" | "corrected";
+    verified_value?: Record<string, unknown> | null;
+    comment?: string | null;
+    evidence_ocr_block_id?: string | null;
+  },
+): Promise<void> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/field-verifications`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+}

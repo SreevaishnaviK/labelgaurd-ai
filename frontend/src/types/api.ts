@@ -64,6 +64,8 @@ export type FieldCandidate = {
 };
 
 export type ExtractedField = {
+  /** Persisted row id — the reference officers verify against (Phase 8). */
+  extracted_field_id: number;
   field_name: string;
   status: FieldStatus;
   value: Record<string, unknown> | null;
@@ -116,6 +118,7 @@ export type RuleEvidence = {
 
 /** One rule's automated result — immutable, produced by the legal engine. */
 export type RuleResult = {
+  rule_evaluation_id: number;
   rule_id: string;
   rule_number: string;
   rule_title: string;
@@ -128,6 +131,50 @@ export type RuleResult = {
   requires_officer_verification: boolean;
   source: { document?: string; page?: number | null } & Record<string, unknown>;
   evidence: RuleEvidence[];
+  /** Phase 8: layered beside the automated result, never replacing it. */
+  effective_status: RuleEvaluationStatus | null;
+  officer_verification: OfficerVerification | null;
+};
+
+/** A human officer's decision on one rule — stored separately from the
+ * automated result, which it never modifies. */
+export type OfficerVerification = {
+  id: number;
+  decision: string;
+  comment: string | null;
+  officer_identifier: string;
+  verified_at: string;
+  evidence_ocr_block_id: string | null;
+  evidence_visual_evidence_id: string | null;
+  evidence_extracted_field_id: number | null;
+};
+
+/** Officer verification of one extracted field (value corrections live only
+ * here — the original extraction is never overwritten). */
+export type FieldVerification = {
+  id: number;
+  extracted_field_id: number;
+  field_name: string;
+  verification_status: "verified" | "corrected";
+  verified_value: Record<string, unknown> | null;
+  comment: string | null;
+  officer_identifier: string;
+  evidence_ocr_block_id: string | null;
+  evidence_visual_evidence_id: string | null;
+  created_at: string;
+};
+
+export type AuditLogEntry = {
+  id: number;
+  inspection_id: string;
+  action: string;
+  actor: string;
+  evaluation_id: number | null;
+  rule_evaluation_id: number | null;
+  decision: string | null;
+  previous_state: string | null;
+  comment: string | null;
+  timestamp: string;
 };
 
 /** Overall assessment state — a rollup, never a score or certification. */
@@ -141,6 +188,10 @@ export type Evaluation = {
   overall_status: OverallStatus;
   evaluated_at: string;
   results: RuleResult[];
+  /** Phase 8: backend-derived effective rollup + pending-verification flag.
+   * null when the payload predates the verification layer. */
+  officer_effective_status: OverallStatus | null;
+  verification_required: boolean | null;
 };
 
 export type Inspection = {
@@ -160,6 +211,8 @@ export type Inspection = {
   };
   evaluation: Evaluation | null;
   visual_evidence: VisualEvidence[];
+  /** Phase 8: officer verifications of extracted fields. */
+  field_verifications: FieldVerification[];
 };
 
 export type UploadSuccess = {

@@ -1,25 +1,33 @@
-"""Inspection API routes (Phase 2 upload/retrieval, Phase 6 evaluation)."""
+"""Inspection API routes (Phase 2 upload/retrieval, Phase 6 evaluation,
+Phase 7 evidence, Phase 8 officer verification)."""
 import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.inspection import AuditLog, FieldVerification, OfficerDecision, OfficerVerification
 from app.schemas.inspection import (
+    AuditLogOut,
     EvaluationOut,
     ExtractionEvidenceOut,
     ExtractionOut,
     ExtractedFieldOut,
     FieldCandidateOut,
+    FieldVerificationIn,
+    FieldVerificationOut,
     InspectionOut,
     OCRBlockOut,
     OCRPageOut,
+    OfficerVerificationIn,
+    OfficerVerificationOut,
     UploadSuccess,
     VisualEvidenceOut,
 )
-from app.services import evaluation_service, evidence_service, inspection_service
+from app.services import evaluation_service, evidence_service, inspection_service, verification_service
 from app.services.evaluation_service import latest_evaluation
 from app.services.inspection_service import average_confidence, get_extracted_fields
 
@@ -72,6 +80,7 @@ def _to_out(inspection, session: Session) -> InspectionOut:
     ]
     extraction = [
         ExtractedFieldOut(
+            extracted_field_id=field.id,
             field_name=field.field_name,
             status=field.status,
             value=field.value_json,
@@ -111,6 +120,14 @@ def _to_out(inspection, session: Session) -> InspectionOut:
     ]
     latest = latest_evaluation(session, inspection)
     visual_records = evidence_service.get_visual_evidence(session, inspection)
+    field_verifications = [
+        verification_service.field_verification_out(v, session)
+        for v in session.execute(
+            select(FieldVerification).where(FieldVerification.inspection_id == inspection.id)
+        )
+        .scalars()
+        .all()
+    ]
     return InspectionOut(
         inspection_id=inspection.inspection_id,
         status=inspection.processing_status.value,
@@ -128,11 +145,18 @@ def _to_out(inspection, session: Session) -> InspectionOut:
         },
         extraction=ExtractionOut(fields=extraction),
         evaluation=(
-            EvaluationOut(inspection_id=inspection.inspection_id, **evaluation_service.evaluation_out(latest))
+            EvaluationOut(
+                inspection_id=inspection.inspection_id,
+                **verification_service.enrich_evaluation(
+                    session, latest, evaluation_service.evaluation_out(latest)
+                ),
+                verification_required=any(r.requires_officer_verification for r in latest.rule_results),
+            )
             if latest
             else None
         ),
         visual_evidence=evidence_service.evidence_out(visual_records),
+        field_verifications=field_verifications,
     )
 
 
@@ -153,7 +177,11 @@ def evaluate_inspection(inspection_id: str, session: Session = Depends(get_db)) 
     except evaluation_service.LegalEngineError as exc:
         raise HTTPException(status_code=503, detail={"code": "LEGAL_ENGINE_UNAVAILABLE", "message": exc.message}) from exc
     return EvaluationOut(
-        inspection_id=inspection.inspection_id, **evaluation_service.evaluation_out(evaluation)
+        inspection_id=inspection.inspection_id,
+        **verification_service.enrich_evaluation(
+            session, evaluation, evaluation_service.evaluation_out(evaluation)
+        ),
+        verification_required=any(r.requires_officer_verification for r in evaluation.rule_results),
     )
 
 
@@ -185,7 +213,11 @@ def get_evaluation(inspection_id: str, session: Session = Depends(get_db)) -> Ev
             detail={"code": "EVALUATION_NOT_FOUND", "message": "No evaluation has been run for this inspection."},
         )
     return EvaluationOut(
-        inspection_id=inspection.inspection_id, **evaluation_service.evaluation_out(evaluation)
+        inspection_id=inspection.inspection_id,
+        **verification_service.enrich_evaluation(
+            session, evaluation, evaluation_service.evaluation_out(evaluation)
+        ),
+        verification_required=any(r.requires_officer_verification for r in evaluation.rule_results),
     )
 
 
@@ -200,3 +232,115 @@ def get_inspection_image(inspection_id: str, session: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail={"code": "FILE_NOT_FOUND", "message": "Stored file is missing."})
     media_type = inspection.mime_type or (mimetypes.guess_type(path.name)[0] or "application/octet-stream")
     return FileResponse(path, media_type=media_type, filename=inspection.original_filename or path.name)
+
+
+# --- Phase 8: officer verification (separate layer; originals immutable) ---
+
+
+@router.post("/{inspection_id}/verifications", response_model=OfficerVerificationOut, status_code=201)
+def create_rule_verification(
+    inspection_id: str,
+    payload: OfficerVerificationIn,
+    session: Session = Depends(get_db),
+) -> OfficerVerificationOut:
+    """Record an officer decision on one rule of the latest evaluation.
+
+    Verifications attach to the evaluation version they reviewed; a later
+    re-evaluation is unverified until reviewed again. Originals untouched.
+    """
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    evaluation = latest_evaluation(session, inspection)
+    if evaluation is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "EVALUATION_NOT_FOUND", "message": "Run an assessment before verifying its rules."},
+        )
+    try:
+        decision = OfficerDecision(payload.decision)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "INVALID_DECISION", "message": f"Unknown decision '{payload.decision}'."},
+        ) from exc
+    verification = verification_service.create_verification(
+        session,
+        inspection,
+        payload.rule_evaluation_id,
+        decision,
+        payload.comment,
+        evidence_ocr_block_id=payload.evidence_ocr_block_id,
+        evidence_visual_evidence_id=payload.evidence_visual_evidence_id,
+        evidence_extracted_field_id=payload.evidence_extracted_field_id,
+    )
+    session.commit()
+    return OfficerVerificationOut(**verification_service.verification_out(verification, session))
+
+
+@router.get("/{inspection_id}/verifications", response_model=list[OfficerVerificationOut])
+def list_rule_verifications(
+    inspection_id: str, session: Session = Depends(get_db)
+) -> list[OfficerVerificationOut]:
+    """All officer verifications for the inspection, newest first."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    rows = (
+        session.execute(
+            select(OfficerVerification)
+            .where(OfficerVerification.inspection_id == inspection.id)
+            .order_by(OfficerVerification.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [OfficerVerificationOut(**verification_service.verification_out(v, session)) for v in rows]
+
+
+@router.post("/{inspection_id}/field-verifications", response_model=FieldVerificationOut, status_code=201)
+def create_field_verification(
+    inspection_id: str,
+    payload: FieldVerificationIn,
+    session: Session = Depends(get_db),
+) -> FieldVerificationOut:
+    """Verify (or correct) one extracted field. The original value stays."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    verification = verification_service.create_field_verification(
+        session,
+        inspection,
+        payload.extracted_field_id,
+        payload.verification_status,
+        payload.verified_value,
+        payload.comment,
+        evidence_ocr_block_id=payload.evidence_ocr_block_id,
+        evidence_visual_evidence_id=payload.evidence_visual_evidence_id,
+    )
+    session.commit()
+    return FieldVerificationOut(**verification_service.field_verification_out(verification, session))
+
+
+@router.get("/{inspection_id}/audit-log", response_model=list[AuditLogOut])
+def get_audit_log(inspection_id: str, session: Session = Depends(get_db)) -> list[AuditLogOut]:
+    """Append-only audit trail for the inspection, oldest first."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    rows = (
+        session.execute(
+            select(AuditLog)
+            .where(AuditLog.inspection_id == inspection.id)
+            .order_by(AuditLog.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        AuditLogOut(
+            id=row.id,
+            inspection_id=inspection.inspection_id,
+            action=row.action,
+            actor=row.actor,
+            evaluation_id=row.evaluation_id,
+            rule_evaluation_id=row.rule_evaluation_id,
+            decision=row.decision,
+            previous_state=row.previous_state,
+            comment=row.comment,
+            timestamp=row.timestamp,
+        )
+        for row in rows
+    ]

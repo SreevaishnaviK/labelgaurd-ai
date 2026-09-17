@@ -429,6 +429,7 @@ def evaluation_out(evaluation: InspectionEvaluation) -> dict:
         "evaluated_at": evaluation.created_at,
         "results": [
             {
+                "rule_evaluation_id": row.id,
                 "rule_id": row.rule_id,
                 "rule_number": row.rule_number,
                 "rule_title": row.rule_title,

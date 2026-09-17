@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  BadgeCheck,
   Check,
   Copy,
   Crosshair,
@@ -12,9 +13,23 @@ import {
 } from "lucide-react";
 import CompliancePanel from "./CompliancePanel";
 import { findEvidenceBlock, VisualEvidenceCard } from "./VisualEvidencePanel";
-import { evaluateInspection, fetchInspection, inspectionImageUrl } from "../lib/inspections";
+import {
+  createFieldVerification,
+  createRuleVerification,
+  evaluateInspection,
+  fetchInspection,
+  inspectionImageUrl,
+} from "../lib/inspections";
 import { apiUrl } from "../lib/api";
-import type { Evaluation, ExtractedField, Inspection, OCRBlock, SystemStatus, VisualEvidence } from "../types/api";
+import type {
+  Evaluation,
+  ExtractedField,
+  FieldVerification,
+  Inspection,
+  OCRBlock,
+  SystemStatus,
+  VisualEvidence,
+} from "../types/api";
 
 const btnPrimary =
   "inline-flex items-center justify-center gap-2 rounded-lg bg-brand-dark px-5 py-2.5 text-sm font-medium text-brand-white transition-colors hover:bg-brand-green";
@@ -81,16 +96,67 @@ function FieldCard({
   blocksById,
   isActive,
   onSelectBlock,
+  verification,
+  onSaveVerification,
 }: {
   field: ExtractedField;
   blocksById: Map<string, OCRBlock>;
   isActive: boolean;
   onSelectBlock: (block: OCRBlock | null) => void;
+  verification: FieldVerification | null;
+  onSaveVerification: (
+    payload: {
+      extracted_field_id: number;
+      verification_status: "verified" | "corrected";
+      verified_value?: Record<string, unknown> | null;
+      comment?: string | null;
+      evidence_ocr_block_id?: string | null;
+    },
+  ) => Promise<void>;
 }) {
   const value = formatValue(field);
   const isAmbiguous = field.status === "ambiguous";
   const isDetected = field.status === "detected";
   const evidenceBlock = field.evidence.length ? blocksById.get(field.evidence[0].ocr_block_id) ?? null : null;
+  const [verifying, setVerifying] = useState(false);
+  const [correctedValue, setCorrectedValue] = useState("");
+  const [comment, setComment] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const saveVerification = async (status: "verified" | "corrected") => {
+    if (status === "corrected" && !correctedValue.trim()) {
+      setError("Enter the verified value.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const current = field.value ?? {};
+      const edited =
+        status === "corrected"
+          ? Object.fromEntries(
+              Object.entries(current).map(([key, existing]) =>
+                typeof existing === "string" && existing.length > 0 ? [key, correctedValue.trim()] : [key, existing],
+              ),
+            )
+          : null;
+      await onSaveVerification({
+        extracted_field_id: field.extracted_field_id,
+        verification_status: status,
+        verified_value: edited,
+        comment: comment.trim() || null,
+        evidence_ocr_block_id: field.evidence[0]?.ocr_block_id ?? null,
+      });
+      setVerifying(false);
+      setCorrectedValue("");
+      setComment("");
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "Could not save the verification.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div
@@ -143,18 +209,106 @@ function FieldCard({
           {field.resolution_status === "conflict" && " · conflicting readings"}
           {field.resolution_status === "ai_unavailable" && " · AI unavailable"}
         </p>
-        {evidenceBlock && (
-          <button
-            type="button"
-            onClick={() => onSelectBlock(isActive ? null : evidenceBlock)}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-brand-green transition-colors hover:bg-brand-green/10"
-            aria-label={`Highlight OCR evidence for ${FIELD_LABELS[field.field_name] ?? field.field_name}`}
-          >
-            <Crosshair className="h-3 w-3" aria-hidden="true" />
-            Evidence
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {evidenceBlock && (
+            <button
+              type="button"
+              onClick={() => onSelectBlock(isActive ? null : evidenceBlock)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-brand-green transition-colors hover:bg-brand-green/10"
+              aria-label={`Highlight OCR evidence for ${FIELD_LABELS[field.field_name] ?? field.field_name}`}
+            >
+              <Crosshair className="h-3 w-3" aria-hidden="true" />
+              Evidence
+            </button>
+          )}
+          {(isDetected || isAmbiguous) && !verifying && (
+            <button
+              type="button"
+              onClick={() => setVerifying(true)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-brand-dark transition-colors hover:bg-brand-dark/5"
+            >
+              <BadgeCheck className="h-3 w-3" aria-hidden="true" />
+              {verification ? "Re-verify" : "Verify"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {verification && (
+        <div className="mt-2 rounded-lg border border-brand-green/30 bg-brand-green/5 p-2.5">
+          <p className="flex items-center gap-1 text-[11px] font-semibold text-brand-dark">
+            <BadgeCheck className="h-3 w-3 text-brand-green" aria-hidden="true" />
+            Officer {verification.verification_status === "corrected" ? "Verified (corrected)" : "Verified"}
+          </p>
+          {verification.verification_status === "corrected" && verification.verified_value && (
+            <p className="mt-1 text-xs text-brand-dark">
+              Verified value: {formatValue({ ...field, value: verification.verified_value }) ?? JSON.stringify(verification.verified_value)}
+            </p>
+          )}
+          {verification.comment && <p className="mt-1 text-xs text-brand-muted">"{verification.comment}"</p>}
+          <p className="mt-1 font-mono text-[10px] text-brand-muted">
+            {verification.officer_identifier} · {new Date(verification.created_at).toLocaleString()}
+          </p>
+        </div>
+      )}
+
+      {verifying && (
+        <div className="mt-2 rounded-lg border border-brand-border bg-brand-white p-2.5">
+          <p className="text-[11px] text-brand-muted">
+            The original extracted value above is never overwritten.
+          </p>
+          <div className="mt-1.5 flex gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => saveVerification("verified")}
+              className="rounded-lg bg-brand-dark px-2.5 py-1.5 text-xs font-medium text-brand-white transition-colors hover:bg-brand-green disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Check className="h-3.5 w-3.5" aria-hidden="true" />}
+              Confirm as extracted
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => saveVerification("corrected")}
+              className="rounded-lg border border-brand-border px-2.5 py-1.5 text-xs font-medium text-brand-dark transition-colors hover:border-brand-green/40 disabled:opacity-50"
+            >
+              Edit &amp; verify
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setVerifying(false);
+                setError(null);
+              }}
+              className="rounded-lg px-2 py-1.5 text-xs text-brand-muted hover:text-brand-dark"
+            >
+              Cancel
+            </button>
+          </div>
+          {correctedValue !== "" || comment !== "" || error ? (
+            <>
+              <input
+                type="text"
+                value={correctedValue}
+                onChange={(event) => setCorrectedValue(event.target.value)}
+                maxLength={2000}
+                placeholder="Verified value (replaces the extracted value when verified)"
+                className="mt-2 w-full rounded-lg border border-brand-border bg-brand-cream p-2 text-xs text-brand-dark placeholder:text-brand-muted/70 focus:border-brand-green focus:outline-none"
+              />
+              <input
+                type="text"
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                maxLength={4000}
+                placeholder={"Optional comment — e.g. 'Confirmed from package.'"}
+                className="mt-1.5 w-full rounded-lg border border-brand-border bg-brand-cream p-2 text-xs text-brand-dark placeholder:text-brand-muted/70 focus:border-brand-green focus:outline-none"
+              />
+            </>
+          ) : null}
+          {error && <p className="mt-1.5 text-xs text-brand-danger">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -185,6 +339,8 @@ function StructuredInformation({
   onSelectBlock,
   aiStatus,
   aiProvider,
+  fieldVerifications,
+  onSaveFieldVerification,
 }: {
   fields: ExtractedField[];
   blocks: OCRBlock[];
@@ -192,6 +348,16 @@ function StructuredInformation({
   onSelectBlock: (block: OCRBlock | null) => void;
   aiStatus: string | null;
   aiProvider: string | null;
+  fieldVerifications: Map<number, FieldVerification>;
+  onSaveFieldVerification: (
+    payload: {
+      extracted_field_id: number;
+      verification_status: "verified" | "corrected";
+      verified_value?: Record<string, unknown> | null;
+      comment?: string | null;
+      evidence_ocr_block_id?: string | null;
+    },
+  ) => Promise<void>;
 }) {
   const blocksById = useMemo(() => new Map(blocks.map((b) => [b.block_id, b])), [blocks]);
   const activeEvidenceField = activeBlock
@@ -217,6 +383,7 @@ function StructuredInformation({
       <AIExtractionStatus status={aiStatus} provider={aiProvider} />
       <p className="mt-1 text-sm text-brand-muted">
         Fields read from the OCR text. Click a field's evidence to highlight it on the label.
+        Officer verification is stored separately — the extracted value is never overwritten.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {fields.map((field) => (
@@ -226,6 +393,8 @@ function StructuredInformation({
             blocksById={blocksById}
             isActive={activeEvidenceField?.field_name === field.field_name}
             onSelectBlock={onSelectBlock}
+            verification={fieldVerifications.get(field.extracted_field_id) ?? null}
+            onSaveVerification={onSaveFieldVerification}
           />
         ))}
       </div>
@@ -384,6 +553,41 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
       setEvaluating(false);
     }
   };
+
+  // Reload after any officer action so effective statuses and verification
+  // records reflect the persisted truth (originals stay immutable).
+  const refreshAfterAction = async () => {
+    try {
+      const data = await fetchInspection(inspectionId);
+      setInspection(data);
+      setEvaluation(data.evaluation ?? null);
+    } catch {
+      /* keep showing the pre-action state rather than blanking the screen */
+    }
+  };
+
+  const saveRuleVerification = async (payload: {
+    rule_evaluation_id: number;
+    decision: string;
+    comment?: string | null;
+  }) => {
+    await createRuleVerification(inspectionId, payload);
+  };
+
+  const saveFieldVerification = async (payload: {
+    extracted_field_id: number;
+    verification_status: "verified" | "corrected";
+    verified_value?: Record<string, unknown> | null;
+    comment?: string | null;
+    evidence_ocr_block_id?: string | null;
+  }) => {
+    await createFieldVerification(inspectionId, payload);
+  };
+
+  const fieldVerificationsById = useMemo(
+    () => new Map((inspection?.field_verifications ?? []).map((v) => [v.extracted_field_id, v])),
+    [inspection],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -585,6 +789,8 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
         onSelectBlock={setActiveBlock}
         aiStatus={systemStatus?.ai ?? null}
         aiProvider={systemStatus?.ai_provider ?? null}
+        fieldVerifications={fieldVerificationsById}
+        onSaveFieldVerification={saveFieldVerification}
       />
 
       {inspection.visual_evidence.length > 0 && (
@@ -623,6 +829,8 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
         onRunEvaluation={runEvaluation}
         evaluating={evaluating}
         evaluateError={evaluateError}
+        onSaveVerification={saveRuleVerification}
+        onVerificationSaved={refreshAfterAction}
       />
     </div>
   );
