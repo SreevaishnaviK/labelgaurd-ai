@@ -458,3 +458,29 @@ class FieldVerification(Base):
     evidence_ocr_block_id: Mapped[str | None] = mapped_column(String(32))
     evidence_visual_evidence_id: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InspectionReport(Base):
+    """A server-generated PDF report for one evaluation version (Phase 9).
+
+    Built exclusively from persisted data (no OCR/AI re-runs) and stored on
+    the shared uploads volume; the row records integrity metadata only. A
+    report belongs to exactly one evaluation version — later evaluations get
+    their own report and never rewrite an existing one.
+    """
+
+    __tablename__ = "inspection_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inspection_id: Mapped[int] = mapped_column(
+        ForeignKey("inspections.id"), nullable=False, index=True
+    )
+    evaluation_id: Mapped[int] = mapped_column(
+        ForeignKey("inspection_evaluations.id"), nullable=False, index=True
+    )
+    evaluation_version: Mapped[int] = mapped_column(nullable=False)
+    # SHA-256 of the PDF bytes — file integrity only, NOT a digital signature.
+    report_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Path (relative to UPLOAD_DIR) of the stored PDF.
+    storage_reference: Mapped[str] = mapped_column(String(1024), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

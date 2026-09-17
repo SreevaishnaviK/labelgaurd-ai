@@ -250,5 +250,67 @@ class AuditLogOut(BaseModel):
     timestamp: datetime
 
 
+# --- Phase 9: history, dashboard, evaluation versions, reports ---
+
+
+class InspectionSummaryOut(BaseModel):
+    """One history row. Summaries only — never OCR payloads."""
+
+    inspection_id: str
+    product_name: str | None = None
+    inspection_date: datetime
+    automated_status: str | None = None
+    officer_verified_status: str | None = None
+    effective_status: str | None = None
+    evaluation_version: int | None = None
+    verification_required: bool = False
+    has_evaluation: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class InspectionHistoryOut(BaseModel):
+    items: list[InspectionSummaryOut]
+    page: int
+    page_size: int
+    total: int
+    pages: int
+
+
+class DashboardMetricsOut(BaseModel):
+    """Database-backed overview. `automated` and `officer_effective` are
+    reported side by side — officer data never silently replaces automated
+    statistics."""
+
+    total_inspections: int
+    automated: dict[str, int]
+    officer_effective: dict[str, int]
+    recent_inspections: list[dict]
+
+
+class EvaluationVersionOut(BaseModel):
+    """One immutable evaluation version in the inspection's history."""
+
+    evaluation_id: int
+    evaluation_version: int
+    engine_version: str
+    overall_status: str
+    created_at: datetime
+    has_officer_verification: bool
+
+
+class ReportOut(BaseModel):
+    """Report metadata. `report_hash` is a file-integrity SHA-256 — it is NOT
+    a digital signature."""
+
+    id: int
+    inspection_id: str
+    evaluation_id: int
+    evaluation_version: int
+    report_hash: str
+    storage_reference: str
+    generated_at: datetime
+
+
 class UploadErrorResponse(BaseModel):
     detail: dict

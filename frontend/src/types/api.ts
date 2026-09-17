@@ -177,6 +177,8 @@ export type AuditLogEntry = {
   timestamp: string;
 };
 
+// AuditLogEntry is declared once, above — the Phase 9 section reuses it.
+
 /** Overall assessment state — a rollup, never a score or certification. */
 export type OverallStatus = "COMPLIANT" | "NON_COMPLIANT" | "REVIEW_REQUIRED" | "INCOMPLETE";
 
@@ -239,3 +241,86 @@ export type ApiErrorDetail = {
   code: string;
   message: string;
 };
+
+// --- Phase 9: history, dashboard, evaluation versions, reports ---
+
+export interface InspectionSummary {
+  inspection_id: string;
+  product_name: string | null;
+  inspection_date: string;
+  automated_status: string | null;
+  officer_verified_status: string | null;
+  effective_status: string | null;
+  evaluation_version: number | null;
+  verification_required: boolean;
+  has_evaluation: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InspectionHistory {
+  items: InspectionSummary[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+}
+
+export interface DashboardMetrics {
+  total_inspections: number;
+  automated: Record<string, number>;
+  officer_effective: Record<string, number>;
+  recent_inspections: Array<{
+    inspection_id: string;
+    product_name: string | null;
+    created_at: string;
+    automated_status: string | null;
+    effective_status: string | null;
+  }>;
+}
+
+export interface EvaluationVersion {
+  evaluation_id: number;
+  evaluation_version: number;
+  engine_version: string;
+  overall_status: string;
+  created_at: string;
+  has_officer_verification: boolean;
+}
+
+export interface ReportMeta {
+  id: number;
+  inspection_id: string;
+  evaluation_id: number;
+  evaluation_version: number;
+  report_hash: string;
+  storage_reference: string;
+  generated_at: string;
+}
+
+export interface OfficerVerificationRecord {
+  id: number;
+  inspection_id: string;
+  evaluation_id: number;
+  rule_evaluation_id: number;
+  decision: string;
+  comment: string | null;
+  officer_identifier: string;
+  evidence_ocr_block_id: string | null;
+  evidence_visual_evidence_id: string | null;
+  evidence_extracted_field_id: number | null;
+  created_at: string;
+}
+
+export interface FieldVerificationRecord {
+  id: number;
+  extracted_field_id: number;
+  field_name: string;
+  verification_status: string;
+  verified_value: Record<string, unknown> | null;
+  comment: string | null;
+  officer_identifier: string;
+  evidence_ocr_block_id: string | null;
+  evidence_visual_evidence_id: string | null;
+  created_at: string;
+}

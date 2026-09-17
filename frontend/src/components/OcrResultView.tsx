@@ -14,6 +14,12 @@ import {
 import CompliancePanel from "./CompliancePanel";
 import { findEvidenceBlock, VisualEvidenceCard } from "./VisualEvidencePanel";
 import {
+  AuditHistorySection,
+  EvaluationVersionsSection,
+  ReportSection,
+  VerificationHistorySection,
+} from "./InspectionHistorySections";
+import {
   createFieldVerification,
   createRuleVerification,
   evaluateInspection,
@@ -556,11 +562,13 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
 
   // Reload after any officer action so effective statuses and verification
   // records reflect the persisted truth (originals stay immutable).
+  const [refreshKey, setRefreshKey] = useState(0);
   const refreshAfterAction = async () => {
     try {
       const data = await fetchInspection(inspectionId);
       setInspection(data);
       setEvaluation(data.evaluation ?? null);
+      setRefreshKey((k) => k + 1);
     } catch {
       /* keep showing the pre-action state rather than blanking the screen */
     }
@@ -832,6 +840,13 @@ export default function OcrResultView({ inspectionId, onNavigate }: { inspection
         onSaveVerification={saveRuleVerification}
         onVerificationSaved={refreshAfterAction}
       />
+
+      <div className="mt-6 grid gap-4">
+        <VerificationHistorySection inspectionId={inspectionId} />
+        <AuditHistorySection inspectionId={inspectionId} />
+        <EvaluationVersionsSection inspectionId={inspectionId} refreshKey={refreshKey} />
+        <ReportSection inspectionId={inspectionId} />
+      </div>
     </div>
   );
 }

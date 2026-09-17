@@ -2,7 +2,19 @@
  * Inspection API client. All calls go through apiUrl() — no hardcoded hosts.
  */
 import { apiUrl } from "./api";
-import type { ApiErrorDetail, Evaluation, Inspection, UploadSuccess } from "../types/api";
+import type {
+  ApiErrorDetail,
+  AuditLogEntry,
+  DashboardMetrics,
+  Evaluation,
+  EvaluationVersion,
+  FieldVerificationRecord,
+  Inspection,
+  InspectionHistory,
+  OfficerVerificationRecord,
+  ReportMeta,
+  UploadSuccess,
+} from "../types/api";
 
 const MAX_SIZE_MB = 20;
 export const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "application/pdf"];
@@ -67,6 +79,104 @@ export async function fetchInspection(inspectionId: string): Promise<Inspection>
     throw await errorFromResponse(response);
   }
   return (await response.json()) as Inspection;
+}
+
+// --- Phase 9: history, dashboard, versions, reports ---
+
+export interface HistoryQuery {
+  page?: number;
+  page_size?: number;
+  status?: string | null;
+  date_from?: string | null;
+  date_to?: string | null;
+  search?: string | null;
+}
+
+export async function fetchInspectionHistory(query: HistoryQuery = {}): Promise<InspectionHistory> {
+  const params = new URLSearchParams();
+  if (query.page) params.set("page", String(query.page));
+  if (query.page_size) params.set("page_size", String(query.page_size));
+  if (query.status) params.set("status", query.status);
+  if (query.date_from) params.set("date_from", query.date_from);
+  if (query.date_to) params.set("date_to", query.date_to);
+  if (query.search) params.set("search", query.search);
+  const response = await fetch(apiUrl(`/api/v1/inspections?${params.toString()}`));
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as InspectionHistory;
+}
+
+export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
+  const response = await fetch(apiUrl("/api/v1/inspections/dashboard/metrics"));
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as DashboardMetrics;
+}
+
+export async function fetchEvaluationVersions(inspectionId: string): Promise<EvaluationVersion[]> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/evaluations`),
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as EvaluationVersion[];
+}
+
+export async function fetchAuditLog(inspectionId: string): Promise<AuditLogEntry[]> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/audit-log`),
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as AuditLogEntry[];
+}
+
+export async function fetchRuleVerifications(
+  inspectionId: string,
+): Promise<OfficerVerificationRecord[]> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/verifications`),
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as OfficerVerificationRecord[];
+}
+
+export async function fetchFieldVerifications(
+  inspectionId: string,
+): Promise<FieldVerificationRecord[]> {
+  const inspection = await fetchInspection(inspectionId);
+  return inspection.field_verifications ?? [];
+}
+
+export async function generateReport(inspectionId: string): Promise<ReportMeta> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/report`),
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as ReportMeta;
+}
+
+export async function fetchReportMeta(inspectionId: string): Promise<ReportMeta> {
+  const response = await fetch(
+    apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/report`),
+  );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return (await response.json()) as ReportMeta;
+}
+
+export function reportDownloadUrl(inspectionId: string): string {
+  return apiUrl(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/report/download`);
 }
 
 export function inspectionImageUrl(inspectionId: string): string {

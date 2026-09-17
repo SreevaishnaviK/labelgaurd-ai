@@ -1,9 +1,10 @@
 """Inspection API routes (Phase 2 upload/retrieval, Phase 6 evaluation,
-Phase 7 evidence, Phase 8 officer verification)."""
+Phase 7 evidence, Phase 8 officer verification, Phase 9 history/reports)."""
 import mimetypes
+from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,24 +13,29 @@ from app.database import get_db
 from app.models.inspection import AuditLog, FieldVerification, OfficerDecision, OfficerVerification
 from app.schemas.inspection import (
     AuditLogOut,
+    DashboardMetricsOut,
     EvaluationOut,
+    EvaluationVersionOut,
     ExtractionEvidenceOut,
     ExtractionOut,
     ExtractedFieldOut,
     FieldCandidateOut,
     FieldVerificationIn,
     FieldVerificationOut,
+    InspectionHistoryOut,
     InspectionOut,
     OCRBlockOut,
     OCRPageOut,
     OfficerVerificationIn,
     OfficerVerificationOut,
+    ReportOut,
     UploadSuccess,
     VisualEvidenceOut,
 )
-from app.services import evaluation_service, evidence_service, inspection_service, verification_service
+from app.services import evaluation_service, evidence_service, history_service, inspection_service, report_service, verification_service
 from app.services.evaluation_service import latest_evaluation
 from app.services.inspection_service import average_confidence, get_extracted_fields
+from app.config import get_settings
 
 router = APIRouter(prefix="/api/v1/inspections")
 
@@ -344,3 +350,130 @@ def get_audit_log(inspection_id: str, session: Session = Depends(get_db)) -> lis
         )
         for row in rows
     ]
+
+
+# --- Phase 9: history, dashboard, evaluation versions, reports ---
+
+
+@router.get("", response_model=InspectionHistoryOut)
+def list_inspections(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, description="Comma-separated statuses to match"),
+    date_from: datetime | None = Query(None),
+    date_to: datetime | None = Query(None),
+    search: str | None = Query(None, description="Inspection ID, product name or manufacturer"),
+    session: Session = Depends(get_db),
+) -> InspectionHistoryOut:
+    """Paginated inspection history from PostgreSQL (summaries only)."""
+    return InspectionHistoryOut(**history_service.list_inspections(
+        session,
+        page=page,
+        page_size=page_size,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    ))
+
+
+@router.get("/dashboard/metrics", response_model=DashboardMetricsOut)
+def dashboard_metrics(session: Session = Depends(get_db)) -> DashboardMetricsOut:
+    """Database-backed overview metrics (zero-state honest: zeros when empty).
+
+    Automated and officer-effective counts are reported side by side.
+    """
+    return DashboardMetricsOut(**history_service.dashboard_metrics(session))
+
+
+@router.get("/{inspection_id}/evaluations", response_model=list[EvaluationVersionOut])
+def list_evaluation_versions(
+    inspection_id: str, session: Session = Depends(get_db)
+) -> list[EvaluationVersionOut]:
+    """All evaluation versions for the inspection (immutable history)."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    return [
+        EvaluationVersionOut(**v) for v in history_service.list_evaluation_versions(session, inspection)
+    ]
+
+
+@router.get("/{inspection_id}/evaluations/{version}", response_model=EvaluationOut)
+def get_evaluation_version(
+    inspection_id: str, version: int, session: Session = Depends(get_db)
+) -> EvaluationOut:
+    """One specific evaluation version, view-only — history is never edited."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    payload = history_service.get_evaluation_version(session, inspection, version)
+    return EvaluationOut(**payload)
+
+
+@router.post("/{inspection_id}/report", response_model=ReportOut, status_code=201)
+def generate_report(inspection_id: str, session: Session = Depends(get_db)) -> ReportOut:
+    """Generate the PDF report for the latest evaluation version.
+
+    Re-generating for the same evaluation returns the existing report —
+    reports are immutable and bound to their evaluation version.
+    """
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    try:
+        report = report_service.generate_report(session, inspection)
+    except report_service.ReportError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "REPORT_NOT_POSSIBLE", "message": exc.message},
+        ) from exc
+    session.commit()
+    return ReportOut(**report_service.report_out(report, session))
+
+
+@router.get("/{inspection_id}/report", response_model=ReportOut)
+def get_report(inspection_id: str, session: Session = Depends(get_db)) -> ReportOut:
+    """Latest report metadata for the inspection (404 before first generation)."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    from app.models.inspection import InspectionReport
+
+    report = (
+        session.execute(
+            select(InspectionReport)
+            .where(InspectionReport.inspection_id == inspection.id)
+            .order_by(InspectionReport.evaluation_version.desc(), InspectionReport.id.desc())
+        )
+        .scalars()
+        .first()
+    )
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "REPORT_NOT_FOUND", "message": "No report generated for this inspection."},
+        )
+    return ReportOut(**report_service.report_out(report, session))
+
+
+@router.get("/{inspection_id}/report/download")
+def download_report(inspection_id: str, session: Session = Depends(get_db)) -> FileResponse:
+    """Serve the stored PDF for the latest report (integrity hash in metadata)."""
+    inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
+    from app.models.inspection import InspectionReport
+
+    report = (
+        session.execute(
+            select(InspectionReport)
+            .where(InspectionReport.inspection_id == inspection.id)
+            .order_by(InspectionReport.evaluation_version.desc(), InspectionReport.id.desc())
+        )
+        .scalars()
+        .first()
+    )
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "REPORT_NOT_FOUND", "message": "No report generated for this inspection."},
+        )
+    path = Path(get_settings().upload_dir) / report.storage_reference
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "REPORT_FILE_MISSING", "message": "The report file is missing from storage."},
+        )
+    filename = f"{inspection.inspection_id}-assessment-v{report.evaluation_version}.pdf"
+    return FileResponse(path, media_type="application/pdf", filename=filename)

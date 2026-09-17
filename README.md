@@ -474,8 +474,48 @@ Interactive docs for each service:
 | 4     | AI-assisted extraction (provider abstraction, fallback)      | Done           |
 | 5     | Legal engine foundation + verified schedule data             | Done           |
 | 6     | End-to-end compliance evaluation + persistence + UI          | Done           |
-| 7     | Computer Vision evidence layer (PDP, heights, contrast)      | **Current**    |
-| 8     | Officer verification, field verification, audit workflow     | Complete       |
+| 7     | Computer Vision evidence layer (PDP, heights, contrast)      | Done           |
+| 8     | Officer verification, field verification, audit workflow     | Done           |
+| 9     | Reporting, inspection history & export (PDF, history UI, DB-backed dashboard) | **Current** |
+
+## Phase 9 — Reporting, inspection history & export
+
+### Inspection history
+
+`GET /api/v1/inspections` returns paginated summaries straight from PostgreSQL:
+`page`, `page_size`, `status` (COMPLIANT / NON_COMPLIANT / REVIEW_REQUIRED /
+INCOMPLETE), `date_from` / `date_to`, and `search` (inspection id, product name
+or manufacturer). Rows expose both `automated_status` and
+`officer_verified_status` plus the `effective_status` — officer data never
+replaces automated data in the API. Summaries carry no OCR payloads, and all
+rollups are computed with bulk queries (no N+1).
+
+### Dashboard
+
+`GET /api/v1/inspections/dashboard/metrics` derives every number from the
+database — an empty database shows zeros. Automated and officer-effective
+counts are displayed side by side, with a recent-inspections list of real
+records only.
+
+### Reports
+
+`POST /api/v1/inspections/{id}/report` generates a server-side PDF
+(reportlab) from persisted data only — no OCR/AI/CV re-runs. A report is
+bound to exactly one evaluation version; re-generating for the same
+evaluation returns the existing record. `GET .../report` returns metadata
+including the SHA-256 **Report Integrity Hash** of the PDF bytes (file
+integrity only — **not a digital signature**), and `GET .../report/download`
+serves the stored file. Every report carries the mandatory disclaimer:
+
+> This report represents an automated compliance assessment and, where
+> applicable, an officer verification record. It is not a legal certification.
+
+### Evaluation versions
+
+`GET /api/v1/inspections/{id}/evaluations` lists every immutable evaluation
+version; `GET .../evaluations/{version}` retrieves a specific one (view-only).
+The result view shows Verification History, Audit History (append-only) and
+Evaluation Versions sections, all rendered from persisted records.
 
 ## Tests
 
