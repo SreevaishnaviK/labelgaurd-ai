@@ -517,6 +517,46 @@ version; `GET .../evaluations/{version}` retrieves a specific one (view-only).
 The result view shows Verification History, Audit History (append-only) and
 Evaluation Versions sections, all rendered from persisted records.
 
+## Phase 9A — Spatial extraction (reading order + anchors)
+
+Real labels are multi-column, and Tesseract's returned line numbers cannot be
+trusted there — on the FarmBite chips label the engine fused the manufacturer
+declaration with its own address and interleaved nutrition rows. Two layers
+now fix this deterministically (no new regex-heavy heuristics, no fabricated
+values):
+
+- **computer-vision/app/ocr/parser.py** rebuilds visual lines geometrically
+  from word bounding boxes (vertical-band grouping, two-sided gap fitting,
+  fragment re-merge with a comparable-height gate so tall noise glyphs cannot
+  bridge lines) instead of trusting engine `line_num`/`block_num`.
+- **ai/app/extraction/spatial.py** derives reading order, section anchors and
+  neighborhoods from block bboxes; **ai/app/extraction/deterministic.py** now
+  extracts every field from its anchor's spatial neighborhood (own line,
+  block-below in the same column, side-by-side same-column lines) rather than
+  scanning the document as a flat string.
+
+Anchor rules: ingredients harvest only blocks overlapping the INGREDIENTS
+anchor's column (the nutrition table sits above it and can never be reached);
+role declarations scan per block so side-by-side "Packed by X | Imported by Y"
+never steal each other's names, and address lines (digits/commas/place words)
+never leak into the company name; dates/batch/net-quantity/MRP values are
+matched inside the anchor's neighborhood only — never from nutrition numbers
+("per 100g", "650 mg"), label keywords alone ("Use" is not a batch), or the
+address ("India" there does not become a country of origin). OCR noise glyphs
+(`\`, `|`) inside ingredient words become spaces deterministically, plus one
+context-gated correction (`lodised` → `Iodised` in ingredient context).
+
+Confidence stays layered: same-line strong reads keep the configured
+deterministic confidence; multi-block (context-derived) reads carry a lower
+value; OCR confidence is untouched and separate.
+
+A real-label fixture (Tesseract word data from the uploaded FarmBite label,
+parsed by the actual CV parser) lives in `ai/tests/fixtures/farmbite_ocr.json`
+and `computer-vision/tests/fixtures/farmbite_words.json` — the regression
+tests pin the exact reconstruction. Where the OCR render genuinely lacks a
+block (e.g. the front-panel "Net Weight" small print), the field honestly
+stays `not_detected`; nothing is invented.
+
 ## Tests
 
 Each Python service ships pytest coverage of its endpoints:
