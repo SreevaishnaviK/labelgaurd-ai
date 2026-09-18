@@ -26,16 +26,29 @@ def png_bytes() -> bytes:
 
 
 def _fake_ocr_blocks() -> list[dict]:
+    # One block per fixture field so stub AI evidence references point at
+    # blocks the stub actually delivered (the real AI service can only
+    # reference blocks from its own input payload).
+    texts = [
+        "PREMIUM WHEAT FLOUR",
+        "Manufactured by ABC Foods Pvt Ltd",
+        "Plot 12, Industrial Estate, Vijayawada, Andhra Pradesh",
+        "Net Qty: 1 kg",
+        "MRP ₹68.00",
+        "MFG 08/2026",
+        "Consumer Care: care@abcfoods.example",
+    ]
     return [
         {
-            "id": "block_001",
-            "text": "MRP ₹68.00",
-            "confidence": 96.4,
-            "bbox": {"x": 124, "y": 82, "width": 280, "height": 54},
-            "line_number": 1,
-            "block_number": 4,
+            "id": f"block_{i + 1:03d}",
+            "text": text,
+            "confidence": 96.0,
+            "bbox": {"x": 100 + i, "y": 60 + 40 * i, "width": 280, "height": 30},
+            "line_number": i + 1,
+            "block_number": i + 1,
             "page_number": 1,
         }
+        for i, text in enumerate(texts)
     ]
 
 
@@ -117,7 +130,7 @@ def _fake_ai_fields() -> list[dict]:
             "ocr_confidence": 96.4,
             "extraction_confidence": 95.0,
             "method": "deterministic",
-            "evidence": [{"ocr_block_id": "block_001", "page_number": 1}],
+            "evidence": [{"ocr_block_id": "block_005", "page_number": 1}],
         }
     ]
 

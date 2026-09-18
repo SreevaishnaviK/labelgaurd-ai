@@ -23,6 +23,9 @@ class OCRBlockIn(BaseModel):
     confidence: float = Field(ge=0, le=100)
     page_number: int = 1
     bbox: dict[str, int] = Field(default_factory=dict)
+    # Which OCR pass produced the block ("A" base, "B"/"C" recovery).
+    # Optional + free-form so older payloads stay valid.
+    source_pass: str | None = None
 
 
 class OCRPageIn(BaseModel):

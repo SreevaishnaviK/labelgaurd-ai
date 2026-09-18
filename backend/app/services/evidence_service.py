@@ -47,6 +47,10 @@ def _pages_payload(inspection: Inspection, session: Session) -> list[dict]:
                 "line_number": b.line_number,
                 "block_number": b.block_number,
                 "page_number": b.page_number,
+                # Pass provenance ("A"/"B"/"C") — carried so evidence and
+                # extraction can distinguish base-pipeline reads from
+                # recovery-pass reads. Missing on pre-9B rows.
+                "source_pass": b.source_pass,
             }
             for b in session.execute(
                 select(OCRBlock)
@@ -105,6 +109,9 @@ def run_evidence_analysis(session: Session, inspection: Inspection) -> list[Visu
         inspection_id=inspection.inspection_id,
         pages=pages,
         fields=_fields_payload(session, inspection),
+        # The CV service shares the uploads volume; symbol detection needs
+        # the color original (binarized OCR images carry no hue).
+        original_path=inspection.file_path,
     )
     # Replace prior rows: evidence reflects the latest analysis.
     for old in session.execute(
@@ -136,6 +143,66 @@ def run_evidence_analysis(session: Session, inspection: Inspection) -> list[Visu
         session.add(records[-1])
     session.flush()
     return records
+
+
+def compose_symbol_field(session: Session, inspection: Inspection) -> bool:
+    """Compose the ``vegetarian_non_vegetarian`` field from symbol evidence.
+
+    A visual-symbol classification is NOT OCR text, so it does not belong to
+    the AI extraction pipeline — but officers and the UI reason about it as
+    a structured field. This composes one field row beside the extracted
+    ones, with the method naming the visual detector and the value JSON
+    carrying the evidence_id as provenance. It never fabricates an OCR
+    reference, and only symbol evidence with a real bbox classification
+    (verification_status AUTOMATED, a known declaration) produces a
+    ``detected`` row — anything else stays absent rather than guessed.
+    Returns True when a row was written.
+    """
+    from app.models.inspection import ExtractedField  # local: avoids import cycle
+
+    symbol = session.execute(
+        select(VisualEvidenceRecord)
+        .where(VisualEvidenceRecord.inspection_id == inspection.id)
+        .where(VisualEvidenceRecord.evidence_type == "DECLARATION_SYMBOL")
+        .where(VisualEvidenceRecord.verification_status == "AUTOMATED")
+        .where(VisualEvidenceRecord.value_text.in_(["vegetarian", "non_vegetarian"]))
+        .order_by(VisualEvidenceRecord.confidence.desc())
+    ).scalars().first()
+    # Replace the composed row (if any) so re-analysis reflects the latest
+    # evidence without touching AI-extracted rows.
+    for old in session.execute(
+        select(ExtractedField)
+        .where(ExtractedField.inspection_id == inspection.id)
+        .where(ExtractedField.field_name == "vegetarian_non_vegetarian")
+    ).scalars():
+        session.delete(old)
+    if symbol is None:
+        return False
+    session.add(
+        ExtractedField(
+            inspection=inspection,
+            field_name="vegetarian_non_vegetarian",
+            status="detected",
+            value_json={
+                "declaration": symbol.value_text,
+                "evidence_id": symbol.evidence_id,
+                "bbox": symbol.bbox_json,
+                "source": "visual-symbol-detection",
+            },
+            raw_text=None,  # no OCR text exists for a visual symbol
+            ocr_confidence=None,
+            # extraction_confidence is 0-100 elsewhere in this table; the CV
+            # row's confidence is 0-1, so convert to the field's convention.
+            extraction_confidence=round(float(symbol.confidence) * 100, 1)
+            if symbol.confidence is not None
+            else None,
+            resolution_status=None,
+            # Not "deterministic"/"ai_assisted": this value was measured, not read.
+            method="visual",
+        )
+    )
+    session.flush()
+    return True
 
 
 def get_visual_evidence(session: Session, inspection: Inspection) -> list[VisualEvidenceRecord]:

@@ -21,7 +21,7 @@ def test_upload_valid_image(stub_cv, stub_ai, client):
     assert body["inspection_id"].startswith("LGA-2026-")
     assert body["document_type"] == "image"
     assert body["pages"] == 1
-    assert body["blocks_detected"] == 1
+    assert body["blocks_detected"] == 7
     assert body["text_length"] > 0
 
 
@@ -49,8 +49,8 @@ def test_get_inspection(stub_cv, stub_ai, client):
     body = response.json()
     assert body["inspection_id"] == inspection_id
     assert body["file"]["original_filename"] == "label.png"
-    assert body["ocr"]["blocks_detected"] == 1
-    assert body["ocr"]["blocks"][0]["bbox"] == {"x": 124, "y": 82, "width": 280, "height": 54}
+    assert body["ocr"]["blocks_detected"] == 7
+    assert body["ocr"]["blocks"][0]["bbox"] == {"x": 100, "y": 60, "width": 280, "height": 30}
 
 
 def test_get_missing_inspection(client):
@@ -68,7 +68,7 @@ def test_database_persistence(stub_cv, stub_ai, client):
         assert inspection.original_filename == "label.png"
         assert inspection.page_count == 1
         assert session.query(OCRDocument).filter_by(inspection_id=inspection.id).count() == 1
-        assert session.query(OCRBlock).filter_by(inspection_id=inspection.id).count() == 1
+        assert session.query(OCRBlock).filter_by(inspection_id=inspection.id).count() == 7
 
 
 def test_original_file_preserved(stub_cv, stub_ai, client):

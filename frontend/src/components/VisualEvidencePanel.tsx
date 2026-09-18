@@ -8,6 +8,7 @@ const TYPE_LABELS: Record<string, string> = {
   CONTRAST: "Contrast",
   READABILITY: "Readability",
   BOUNDARY: "Package Boundary",
+  DECLARATION_SYMBOL: "Declaration Symbol",
   PACKAGE_DIMENSION: "Package Dimensions",
   QUANTITY_MEASUREMENT: "Quantity Measurement",
 };
@@ -20,6 +21,10 @@ function formatValue(item: VisualEvidence): string {
 }
 
 function evidenceLine(item: VisualEvidence): string {
+  if (item.evidence_type === "DECLARATION_SYMBOL") {
+    if (item.verification_status === "INSUFFICIENT_EVIDENCE") return "Not detected";
+    return typeof item.value === "string" ? `Detected ${item.value.replace(/_/g, " ")}` : "Symbol detected";
+  }
   if (item.evidence_type === "DECLARATION_REGION") {
     const label = typeof item.value === "string" ? item.value.replace(/_/g, " ").toLowerCase() : "declaration";
     return `Detected ${label}`;

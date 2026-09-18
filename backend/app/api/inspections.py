@@ -81,6 +81,7 @@ def _to_out(inspection, session: Session) -> InspectionOut:
             },
             line_number=block.line_number,
             block_number=block.block_number,
+            source_pass=block.source_pass,
         )
         for block in sorted(inspection.ocr_blocks, key=lambda b: (b.page_number, b.id))
     ]
@@ -201,6 +202,8 @@ def analyze_inspection_evidence(inspection_id: str, session: Session = Depends(g
     inspection = inspection_service.get_inspection_by_public_id(session, inspection_id)
     try:
         records = evidence_service.run_evidence_analysis(session, inspection)
+        # Compose the visual-symbol field beside the AI-extracted ones.
+        evidence_service.compose_symbol_field(session, inspection)
     except (evidence_service.CVServiceError, evidence_service.CVRejectionError) as exc:
         code = "CV_SERVICE_UNAVAILABLE" if isinstance(exc, evidence_service.CVServiceError) else exc.code
         raise HTTPException(status_code=503, detail={"code": code, "message": exc.message}) from exc

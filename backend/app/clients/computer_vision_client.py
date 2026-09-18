@@ -85,15 +85,22 @@ def analyze_evidence(
     inspection_id: str,
     pages: list[dict],
     fields: list[dict],
+    original_path: str | None = None,
 ) -> CVEvidenceResult:
     """Request visual evidence over already-persisted OCR data.
 
     Sends processed-image references, OCR blocks, and extracted-field
-    evidence — never the original upload, never a re-OCR request.
+    evidence — never a re-OCR request. ``original_path`` points at the
+    unprocessed upload (relative to the CV service's UPLOAD_DIR, which the
+    backend shares via volume) so color-dependent visual evidence such as
+    declaration-symbol detection can run; without it symbol evidence is
+    honestly INSUFFICIENT_EVIDENCE rather than guessed.
     """
     settings = get_settings()
     url = f"{settings.cv_service_url}/api/v1/evidence/analyze"
     payload = {"inspection_id": inspection_id, "pages": pages, "fields": fields}
+    if original_path:
+        payload["original_path"] = original_path
     try:
         response = httpx.post(url, json=payload, timeout=settings.cv_timeout_seconds)
     except httpx.TimeoutException as exc:

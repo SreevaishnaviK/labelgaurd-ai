@@ -54,7 +54,7 @@ _MRP_LINE_RE = re.compile(
 _MONEY_GROUP_RE = re.compile(_MONEY_ANY_RE.pattern + r"\s*$", re.IGNORECASE)
 
 _NET_LINE_RE = re.compile(
-    r"\b(?:net\s+(?:qty|quantity|wt\.?|weight)|contents)\b\s*[:.\-]?",
+    r"\b(?:net\s+(?:qty|quantity|wt\.?|weight|content)|contents)\b\s*[:.\-]?",
     re.IGNORECASE,
 )
 _UNIT_TOKEN = r"(?:mg|g|gm|gms|kgs?|ml|l|ltr|litres?|liters?)"
@@ -73,7 +73,7 @@ _MONTH_DATE = (
 )
 _DATE_FIELDS = [
     ("manufacturing_date", r"\b(?:manufacturing\s+date|(?:mfg|mfd)\.?\s+date|mfd|mfg|manufactured(?:\s+on)?)\b"),
-    ("packing_date", r"\b(?:packing\s+date|pkd\.?\s+date|pkd|packed(?:\s+on)?)\b"),
+    ("packing_date", r"\b(?:packing\s+date|pkd\.?\s+date|pkd|pack\s+date|packed(?:\s+on)?)\b"),
     ("best_before", r"\bbest\s+before\b"),
     ("use_by", r"\buse\s+before\b|\buse[\s.]*by\b"),
     ("expiry_date", r"\bexpiry(?:\s+date)?\b|\bexp\b"),
@@ -83,7 +83,7 @@ _DATE_FIELDS = [
 # "Mfg: Date: 15 MAY 2024" — the label word DATE repeats after the anchor;
 # allow one such filler between indicator and value.
 _DATE_LINE_PREFIX = r"(?:{})\s*[:.\-]?\s*(?:(?:date|dt)\b\s*[:.\-]?\s*)?"  # .format() THIS part alone (no quantifiers)
-_DATE_LINE_SUFFIX = _MONTH_DATE + "\.?\)?"
+_DATE_LINE_SUFFIX = _MONTH_DATE + r"\.?\)?"
 _FULL_DATE_RE = re.compile(rf"{_MONTH_DATE}\.?\)?", re.IGNORECASE)
 
 _PHONE_ANCHOR_RE = re.compile(
@@ -137,6 +137,63 @@ _COUNTRY_RES = [
 _INGREDIENTS_RE = re.compile(r"\bingredients?\b\s*[:\-]?", re.IGNORECASE)
 _INGREDIENT_ANCHOR_TOLERANCE = 40  # px: ingredient lines share the anchor's column
 
+# Allergen statements ("Contains milk.", "May contain traces of nuts.") are
+# declarations, never the product title — excluded by name, not prominence,
+# because on some labels they are the largest back-panel text (§9).
+_ALLERGEN_RE = re.compile(
+    r"\bcontains?\b|\bmay\s+contain\b|\ballergen\b|\btraces?\s+of\b", re.IGNORECASE
+)
+
+# Marketing-claim banners ("MADE WITH REAL POTATOES", "NO ADDED PRESERVATIVES")
+# are large-print claims, not titles. Blocks in the claim's stack (same
+# column, a few line-heights around the anchor) are excluded with it.
+_MARKETING_CLAIM_RE = re.compile(
+    r"\b(?:made\s+with|no\s+added|now\s+with|source\s+of|rich\s+in|high\s+in"
+    r"|now\s+in|new!|try\s+me)\b",
+    re.IGNORECASE,
+)
+
+# A price fragment ("45.00", "incl. of all taxes", "₹ 30") belongs to a
+# pricing column, never to a company address (§7).
+_PRICE_RE = re.compile(
+    r"[₹]|\brs\.?\b|\bmrp\b|\bincl\.?\s+of\b|\ball\s+taxes\b|\btaxable\b|"
+    r"\d+\.\d{2}\b",
+    re.IGNORECASE,
+)
+
+# Bare corporate suffixes carry no identity: a candidate name made only of
+# these (plus punctuation) is not a company ("/", "Pvt. Ltd.", "Foods").
+_COMPANY_SUFFIX_RE = re.compile(
+    r"^(?:ltd|llp|pvt|inc|co|gmbh|corp|foods|industries|enterprises|traders)\.?$",
+    re.IGNORECASE,
+)
+# A company-name-shaped line: ends with (or is) a corporate-suffix pattern.
+# These are declarations about responsible parties, never product titles (§3).
+_COMPANY_SHAPE_RE = re.compile(
+    r"(?:pvt\.?|llp|inc\.?|gmbh|corp\.?)\s*(?:ltd|llp)?\.?,?\s*$|"
+    r"(?:foods|industries|enterprises|traders)\s+(?:pvt\.?\s*)?ltd?\.?,?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_company_name(text: str) -> bool:
+    """A company name must contain at least one meaningful word (3+ letters,
+    not a bare suffix). Punctuation, suffix chains and OCR noise fail (§4)."""
+    return any(
+        len(word) >= 3 and not _COMPANY_SUFFIX_RE.match(word)
+        for word in re.findall(r"[A-Za-z]{2,}", text)
+    )
+
+# Nutrition-row labels: a candidate region containing SEVERAL of these is
+# the nutrition table itself, never the ingredients list (§8).
+_NUTRITION_ROW_RE = re.compile(
+    r"\b(?:energy|kcal|kj|protein|carbohydrate|total\s+(?:fat|sugars)"
+    r"|saturated\s+fat|trans\s+fat|sodium|added\s+sugars|dietary\s+fib(?:re|er)"
+    r"|nutritional\s+(?:info|information)|nutrition\s+(?:info|information)"
+    r"|per\s+100\s*(?:g|ml)|per\s+serving)\b",
+    re.IGNORECASE,
+)
+
 
 def _normalize_date(raw: str) -> str:
     """Deterministic date cleanup: 'NOV.2024' -> 'NOV 2024' (letter-dot-digit
@@ -167,6 +224,13 @@ class Trace:
     value: dict
     blocks: list[OCRBlockIn] = field(default_factory=list)
     raw_text: str = ""
+
+
+def _is_parenthetical_fragment(text: str) -> bool:
+    """A parenthesized or pipe-joined fragment ("(NATURAL & NATURE | ...)")
+    is a declaration continuation, never a product title."""
+    stripped = text.strip()
+    return stripped.startswith("(") or "|" in stripped
 
 
 def _looks_like_address_line(text: str) -> bool:
@@ -305,22 +369,59 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
         reachable."""
         traces = []
         for line, match in spatial.find_anchor(lines, _NET_LINE_RE):
-            anchor_block = line.blocks[0]
-            value_match = _UNIT_VALUE_RE.search(line.text[match.end() :]) or _UNIT_VALUE_RE.search(
-                line.text
+            # The anchor can sit anywhere on a multi-column visual line: its
+            # BLOCK is the one containing the match start — never blocks[0],
+            # which dragged same-band blocks from other columns into the
+            # evidence.
+            offsets: list[int] = []
+            pos = 0
+            for block in line.blocks:
+                text = block.text.strip()
+                offsets.append(pos)
+                pos += len(text) + 1
+            anchor_index = 0
+            for i, block in enumerate(line.blocks):
+                span = max(len(block.text.strip()), 1)
+                if offsets[i] <= match.start() < offsets[i] + span:
+                    anchor_index = i
+                    break
+            anchor_block = line.blocks[anchor_index]
+            anchor_x1 = (anchor_block.bbox or {}).get("x", 0) + (anchor_block.bbox or {}).get(
+                "width", 0
             )
-            if value_match:
-                normalized = norm.normalize_mass(
-                    float(value_match.group(1)), value_match.group(2)
-                ) or norm.normalize_volume(float(value_match.group(1)), value_match.group(2))
-                if normalized:
-                    traces.append(
-                        Trace(
+            # Same-line value candidates: the anchor block's own tail, then
+            # blocks horizontally CONTIGUOUS with the anchor. A follower from
+            # another column (nutrition numbers) never qualifies (§7/§22).
+            candidates: list[tuple[OCRBlockIn, str]] = []
+            anchor_text = anchor_block.text.strip()
+            tail_start = match.end() - offsets[anchor_index]
+            if 0 <= tail_start <= len(anchor_text):
+                candidates.append((anchor_block, anchor_text[tail_start:]))
+            for follower in line.blocks[anchor_index + 1 :]:
+                fx = (follower.bbox or {}).get("x", 0)
+                if fx > anchor_x1 + 40:
+                    break  # gap → different column, stop scanning the line
+                candidates.append((follower, follower.text.strip()))
+            value_trace = None
+            for candidate_block, text in candidates:
+                value_match = _UNIT_VALUE_RE.search(text)
+                if value_match:
+                    normalized = norm.normalize_mass(
+                        float(value_match.group(1)), value_match.group(2)
+                    ) or norm.normalize_volume(
+                        float(value_match.group(1)), value_match.group(2)
+                    )
+                    if normalized:
+                        value_trace = Trace(
                             value={"value": normalized[0], "unit": normalized[1]},
-                            blocks=line.blocks,
+                            blocks=[anchor_block]
+                            if candidate_block is anchor_block
+                            else [anchor_block, candidate_block],
                             raw_text=value_match.group().strip(),
                         )
-                    )
+                    break
+            if value_trace is not None:
+                traces.append(value_trace)
                 continue
             # "Net Weight:" alone: the value block sits directly below in the
             # same column.
@@ -351,7 +452,7 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
                     break
         return traces
 
-    def _extract_product_name(self, blocks: list[OCRBlockIn]) -> list[Trace]:
+    def _extract_product_name(self, pages: list[OCRPageIn]) -> list[Trace]:
         """Prominence heuristic over geometry: the most visually dominant
         eligible block — glyph area × text length, with a 1.25× bonus in the
         top half of the eligible span (top/center label text is a name signal,
@@ -362,13 +463,105 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
         Eligibility: not reserved (MRP, net qty, roles, declarations, ...)
         and predominantly alphabetic (rejects codes and phone numbers).
         """
+        blocks = [block for page in pages for block in page.blocks]
+        page_heights = {p.page_number: p.height for p in pages}
         eligible = [
             b
             for b in blocks
             if not _RESERVED_RE.search(b.text)
+            and not _ALLERGEN_RE.search(b.text)  # "Contains milk." is a declaration (§9)
+            and not _NUTRITION_ROW_RE.search(b.text)  # §3: nutrition vocabulary
+            and "flavour" not in b.text.lower()  # ingredient-declaration vocabulary
             and not _looks_like_address_line(b.text)
+            and not _is_parenthetical_fragment(b.text)  # "(NATURAL & ... )" fragments
+            and not _COMPANY_SHAPE_RE.search(b.text.strip())  # responsible-party lines
             and sum(ch.isalpha() for ch in b.text) >= 0.6 * max(len(b.text.strip()), 1)
         ]
+        # Marketing-claim stacks: blocks whose CENTER shares a column with a
+        # "MADE WITH" / "NO ADDED" anchor, within a few line heights, belong
+        # to the banner — large-print claims, not titles.
+        claim_spans: list[tuple[int, int, int, int]] = []
+        for b in blocks:
+            if _MARKETING_CLAIM_RE.search(b.text):
+                bb = b.bbox or {}
+                x0 = bb.get("x", 0)
+                y0 = bb.get("y", 0)
+                h = max(bb.get("height", 20), 20)
+                claim_spans.append((x0 - 60, x0 + bb.get("width", 0) + 160, y0 - 2 * h, y0 + 6 * h))
+
+        def _in_claim_stack(b: OCRBlockIn) -> bool:
+            bb = b.bbox or {}
+            cx = bb.get("x", 0) + bb.get("width", 0) / 2
+            cy = bb.get("y", 0) + bb.get("height", 0) / 2
+            return any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, x1, y0, y1 in claim_spans)
+
+        eligible = [b for b in eligible if not _in_claim_stack(b)]
+        # §3: a title candidate must not sit BELOW a section anchor in its
+        # own column — text underneath a declared section (ingredients,
+        # dates, roles, declarations, ...) belongs to that section, never to
+        # a title. Scoped to the lower page band: badges/taglines live at the
+        # bottom of a panel ("CLEAN" under a Best Before stack), while
+        # upper-region titles legitimately share rows with side panels in
+        # another column, so no global y-threshold is applied there.
+        def _below_section_anchor(cand: OCRBlockIn) -> bool:
+            cb = cand.bbox or {}
+            page_h = page_heights.get(cand.page_number, 0)
+            if not page_h or cb.get("y", 0) < 0.6 * page_h:
+                return False
+            cx0 = cb.get("x", 0)
+            cx1 = cx0 + cb.get("width", 0)
+            cy = cb.get("y", 0)
+            for b in blocks:
+                if b is cand or not _RESERVED_RE.search(b.text):
+                    continue
+                bb = b.bbox or {}
+                ax0 = bb.get("x", 0)
+                ax1 = ax0 + bb.get("width", 0)
+                if min(cx1, ax1) - max(cx0, ax0) >= 40 and bb.get("y", 0) + bb.get("height", 0) <= cy + 4:
+                    return True
+            return False
+
+        eligible = [b for b in eligible if not _below_section_anchor(b)]
+        # Excluded sections (§1.5): the nutrition table's own region can
+        # never yield the title. The table spans from its header down to the
+        # last row-like block (row label, numeric value, or short garbled
+        # fragment) within the header's column band, capped to a compact
+        # span. Titles sit ABOVE the header on normal labels, so real
+        # product-title regions are unaffected.
+        excluded_rects: list[tuple[int, int, int, int]] = []
+        for b in blocks:
+            if not re.search(r"nutritional\s+information|nutrition\s+information", b.text, re.IGNORECASE):
+                continue
+            hb = b.bbox or {}
+            hx0 = hb.get("x", 0) - 40
+            hx1 = hb.get("x", 0) + hb.get("width", 0) + 40
+            hy = hb.get("y", 0)
+            bottom = hy
+            for other in blocks:
+                if other is b:
+                    continue
+                ob = other.bbox or {}
+                ox, oy = ob.get("x", 0), ob.get("y", 0)
+                if ox + ob.get("width", 0) < hx0 or ox > hx1:
+                    continue  # different column band
+                if not hy < oy <= hy + 350:
+                    continue
+                text = other.text.strip()
+                if (
+                    _NUTRITION_ROW_RE.search(text)
+                    or re.fullmatch(r"[0-9., ]+", text)
+                    or len(text) <= 16
+                ):
+                    bottom = max(bottom, oy + ob.get("height", 0))
+            excluded_rects.append((hx0, hx1, hy, bottom + 8))
+
+        def _in_excluded_section(b: OCRBlockIn) -> bool:
+            bb = b.bbox or {}
+            cx = bb.get("x", 0) + bb.get("width", 0) / 2
+            cy = bb.get("y", 0) + bb.get("height", 0) / 2
+            return any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, x1, y0, y1 in excluded_rects)
+
+        eligible = [b for b in eligible if not _in_excluded_section(b)]
         if not eligible:
             return []
         top_y = min((b.bbox or {}).get("y", 0) for b in eligible)
@@ -443,12 +636,25 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
                     for seg in segments:
                         if _stop(seg):
                             return False
-                        if _looks_like_address_line(seg):
+                        # A price fragment never continues an address (§7):
+                        # drop it but keep scanning other neighbours.
+                        if _PRICE_RE.search(seg):
+                            continue
+                        if _looks_like_address_line(seg.rstrip(".,;")):
+                            # Trailing OCR punctuation is not address evidence:
+                            # "HealthyBite Foods Pvt. Ltd," is a company line
+                            # (the comma decides nothing) while digits or
+                            # address vocabulary still route to the address.
                             address.append(seg)
                             address_blocks.extend(blocks)
                         elif not name and not address:
-                            name.append(seg)
-                            name_blocks.extend(blocks)
+                            # The name must be a name: punctuation/noise
+                            # ("/") and suffix-only fragments are skipped so
+                            # the scan continues to the real company line
+                            # instead of capturing junk (§4).
+                            if _is_company_name(seg):
+                                name.append(seg.rstrip(","))
+                                name_blocks.extend(blocks)
                         else:
                             return False
                     return True
@@ -463,10 +669,19 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
                     ):
                         break
                 # Lines below continue the declaration (address wraps).
+                # Scanning stays PER BLOCK: a multi-column follower line can
+                # carry the declaration beside unrelated columns (a pricing
+                # or batch column) — classifying the joined text would let
+                # the neighbour's content contaminate the segment decision.
                 for follower in spatial.neighborhood(lines, line, below=3)[1:]:
-                    if _stop(follower.text) or not _classify(
-                        _segments(follower.text), follower.blocks
-                    ):
+                    stop = False
+                    for member in follower.blocks:
+                        if _stop(member.text) or not _classify(
+                            _segments(member.text), [member]
+                        ):
+                            stop = True
+                            break
+                    if stop:
                         break
 
                 declarations.append(
@@ -617,14 +832,14 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
             same_line = _CONTACT_CAPTURE_RE.search(line.text)
             contact = None
             if same_line:
-                candidate = same_line.group(2).strip(" :;,.-—")
+                candidate = same_line.group(2).strip(" :;,.-—'\"")
                 if candidate and not _CONTACT_LABEL_RE.match(candidate):
                     contact = candidate
             if contact is None:
                 for member in hood[1:]:
                     if _PHONE_ANCHOR_RE.search(member.text):
                         continue
-                    candidate = member.text.strip()
+                    candidate = member.text.strip(" :;,.-—'\"")
                     if candidate.isdigit():
                         continue
                     if 4 <= len(candidate) <= 60 and not _CONTACT_LABEL_RE.match(candidate):
@@ -640,7 +855,7 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
             for member in hood[1:]:
                 inner = _CONTACT_CAPTURE_RE.search(member.text)
                 if inner:
-                    candidate = inner.group(2).strip(" :;,.-—")
+                    candidate = inner.group(2).strip(" :;,.-—'\"")
                     if candidate and not _CONTACT_LABEL_RE.match(candidate):
                         found.setdefault("consumer_care", []).append(
                             Trace(
@@ -694,13 +909,27 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
         """
         traces = []
         for line, match in spatial.find_anchor(lines, _INGREDIENTS_RE):
-            collected = [*line.blocks]
+            # The anchor's COLUMN, not the line's: the anchor block can share
+            # a visual line with unrelated columns ("NUTRITIONAL INFORMATION
+            # INGREDIENTS:"), and using the line span would pull the
+            # nutrition column into the harvest (§8).
+            offsets: list[int] = []
+            pos = 0
+            for block in line.blocks:
+                text = block.text.strip()
+                offsets.append(pos)
+                pos += len(text) + 1
+            anchor_index = 0
+            for i, block in enumerate(line.blocks):
+                span = max(len(block.text.strip()), 1)
+                if offsets[i] <= match.start() < offsets[i] + span:
+                    anchor_index = i
+                    break
+            anchor_block = line.blocks[anchor_index]
+            anchor_x0 = (anchor_block.bbox or {}).get("x", 0)
+            anchor_x1 = anchor_x0 + (anchor_block.bbox or {}).get("width", 0)
+            collected = [anchor_block]
             parts: list[str] = []
-            anchor_x0 = min((b.bbox or {}).get("x", 0) for b in line.blocks)
-            anchor_x1 = max(
-                (b.bbox or {}).get("x", 0) + (b.bbox or {}).get("width", 0)
-                for b in line.blocks
-            )
             rest = line.text[match.end() :].strip(" :—-")
             if rest:
                 parts.append(rest)
@@ -716,9 +945,15 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
                     > anchor_x0 + 8
                     and (b.bbox or {}).get("x", 0) < anchor_x1 - 8
                 ]
-                if taken:
-                    parts.extend(b.text.strip() for b in taken)
-                    collected.extend(taken)
+                if not taken:
+                    continue
+                candidate_text = " ".join(b.text for b in taken)
+                # Nutrition-row labels never continue the ingredient list
+                # (§8): a row like "Energy 545 kcal" terminates the harvest.
+                if len(_NUTRITION_ROW_RE.findall(candidate_text)) >= 1:
+                    break
+                parts.extend(b.text.strip() for b in taken)
+                collected.extend(taken)
             if not parts:
                 continue
             joined = ""
@@ -736,6 +971,11 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
             joined = re.sub(r"\s+,", ",", joined)
             joined = re.sub(r",{2,}", ",", joined)
             joined = re.sub(r"\s{2,}", " ", joined).strip()
+            # §8: a candidate polluted by multiple nutrition-row labels is
+            # the nutrition table, not the ingredients — reject the whole
+            # candidate rather than emit a contaminated value.
+            if len(_NUTRITION_ROW_RE.findall(joined)) >= 2:
+                continue
             # §18: single context-gated correction, deterministic and safe.
             for pattern, replacement in _INGREDIENT_FIXES:
                 joined = pattern.sub(replacement, joined)
@@ -786,7 +1026,7 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
         traces_by_field: dict[str, list[Trace]] = {
             "mrp": self._extract_mrp(lines),
             "net_quantity": self._extract_net_quantity(lines),
-            "product_name": self._extract_product_name(blocks),
+            "product_name": self._extract_product_name(pages),
             "manufacturer": self._extract_role("manufacturer", lines),
             "packer": self._extract_role("packer", lines),
             "importer": self._extract_role("importer", lines),

@@ -7,7 +7,9 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 
 from app.config import get_settings
 from app.ocr.engine import get_ocr_engine
+from app.ocr.multipass import recover_missing_declarations
 from app.ocr.parser import join_full_text, parse_blocks
+from app.preprocessing.enhance import to_grayscale
 from app.preprocessing.image_loader import decode_image, decode_pdf
 from app.preprocessing.preprocess import preprocess_for_ocr
 from app.schemas.vision import AnalyzeSuccess, OCRPage
@@ -27,12 +29,25 @@ def _processed_root(document_id: str) -> Path:
 
 
 def _analyze_page(image, page_number: int, page_root: Path) -> OCRPage:
-    """Preprocess + OCR one page image, persisting the processed variant."""
+    """Preprocess + OCR one page image, persisting the processed variant.
+
+    When pass A lacks a net-quantity (or any mandatory) declaration anchor,
+    bounded recovery passes (contrast-only, then upscaled) try to recover
+    small text that the full preprocessing chain erased; merged blocks carry
+    a source_pass marker and pass-A blocks are never rewritten.
+    """
     settings = get_settings()
     gray, width, height, warped = preprocess_for_ocr(image)
     engine = get_ocr_engine(settings.ocr_engine)
     raw = engine.extract(gray)
     blocks = parse_blocks(raw, page_number)
+    for block in blocks:
+        block.source_pass = "A"
+    # Recovery passes read the clean grayscale (resize+gray only) — the
+    # denoise/threshold stages are what erase small faint declarations.
+    clean_gray = to_grayscale(image)
+    multipass = recover_missing_declarations(clean_gray, engine, blocks, page_number)
+    blocks = multipass.blocks
     processed_name = save_processed_image(page_root, page_number, gray)
     return OCRPage(
         page_number=page_number,
@@ -44,6 +59,9 @@ def _analyze_page(image, page_number: int, page_root: Path) -> OCRPage:
         # same volume and can serve this file back to the frontend.
         processed_image=f"processed/{page_root.name}/{processed_name}",
         warped=warped,
+        # Recovery metadata: which passes ran and their bounded cost.
+        ocr_passes=multipass.passes_run,
+        recovery_time_ms=multipass.extra_time_ms,
     )
 
 

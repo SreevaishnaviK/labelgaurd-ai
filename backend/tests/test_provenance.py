@@ -89,7 +89,7 @@ def test_fallback_provenance_persisted(stub_cv, stub_ai, client, monkeypatch):
                 "value": {"amount": 68.0, "currency": "INR"},
                 "method": "deterministic_fallback",
                 "resolution_status": "ai_unavailable",
-                "evidence": [{"ocr_block_id": "block_001", "page_number": 1}],
+                "evidence": [{"ocr_block_id": "block_005", "page_number": 1}],
             }
         ],
     )

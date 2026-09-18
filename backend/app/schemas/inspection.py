@@ -19,6 +19,9 @@ class OCRBlockOut(BaseModel):
     bbox: BBox
     line_number: int
     block_number: int
+    # Which OCR pass produced this block ("A" base pipeline; "B"/"C" =
+    # Phase 9B recovery). Optional: pre-9B blocks have none.
+    source_pass: str | None = None
 
 
 class OCRPageOut(BaseModel):

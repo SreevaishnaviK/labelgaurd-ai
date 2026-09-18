@@ -71,17 +71,19 @@ _PHONE_RE = re.compile(r"(?:\+91[\s-]?)?(?:\d[\s-]?){10,12}\d")
 
 
 def normalize_phone(text: str) -> str | None:
-    """Extract a phone number, normalizing digits but keeping the leading +91."""
-    match = _PHONE_RE.search(text)
-    if not match:
-        return None
-    raw = match.group()
-    digits = re.sub(r"\D", "", raw)
-    if not 10 <= len(digits) <= 12:
-        return None
-    if raw.lstrip().startswith("+"):
-        return f"+{digits}"
-    return digits
+    """Extract a phone number, normalizing digits but keeping the leading +91.
+
+    Digit runs longer than 12 are identifiers (FSSAI licences, barcodes,
+    product codes), not phone numbers — rejected outright (§14)."""
+    for match in _PHONE_RE.finditer(text):
+        raw = match.group()
+        digits = re.sub(r"\D", "", raw)
+        if not 10 <= len(digits) <= 12:
+            continue  # too long to be a phone — skip, do not truncate
+        if raw.lstrip().startswith("+"):
+            return f"+{digits}"
+        return digits
+    return None
 
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")

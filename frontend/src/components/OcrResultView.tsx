@@ -72,6 +72,7 @@ const FIELD_LABELS: Record<string, string> = {
 function provenanceLabel(field: ExtractedField): string {
   if (field.method === "ai_assisted") return "AI-assisted";
   if (field.method === "deterministic_fallback") return "Deterministic fallback";
+  if (field.method === "visual") return "Visual symbol detection";
   return "Pattern-based";
 }
 

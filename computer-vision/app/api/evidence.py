@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.evidence.declarations import declaration_regions
 from app.evidence.geometry import contrast_metric, new_evidence_id, readability_metrics
 from app.evidence.pdp import detect_candidate_pdp, detect_package_boundary, physical_area_cm2
+from app.evidence.symbols import detect_declaration_symbols
 from app.schemas.vision import EvidenceAnalyzeRequest, EvidenceAnalyzeSuccess, EvidenceItem
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,73 @@ router = APIRouter()
 
 # Blocks below this OCR confidence carry too little signal to measure.
 _MIN_BLOCK_CONFIDENCE = 40.0
+
+
+def _load_color_image(original_path: str | None) -> np.ndarray | None:
+    """Load the unprocessed original in color for symbol detection.
+
+    The binarized OCR image no longer carries hue information, so symbol
+    evidence needs the original upload. Returns None (→ INSUFFICIENT
+    EVIDENCE, never a guess) when no original is available.
+    """
+    if not original_path:
+        return None
+    path = Path(get_settings().upload_dir) / original_path
+    if not path.is_file():
+        return None
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    return image
+
+
+def _symbol_items(color_image: np.ndarray | None, page_number: int) -> list[EvidenceItem]:
+    """Visual declaration-symbol evidence (vegetarian / non-vegetarian).
+
+    Classification comes only from the symbol itself — never from OCR text,
+    ingredients, or product naming. Without a detectable symbol the result
+    is INSUFFICIENT_EVIDENCE.
+    """
+    if color_image is None:
+        return [
+            EvidenceItem(
+                evidence_id=new_evidence_id(),
+                evidence_type="DECLARATION_SYMBOL",
+                page_number=page_number,
+                value="not detected",
+                confidence=0.0,
+                method="visual-symbol-detection",
+                verification_status="INSUFFICIENT_EVIDENCE",
+                note="Original color image unavailable for symbol detection.",
+            )
+        ]
+    items: list[EvidenceItem] = []
+    for hit in detect_declaration_symbols(color_image):
+        items.append(
+            EvidenceItem(
+                evidence_id=new_evidence_id(),
+                evidence_type="DECLARATION_SYMBOL",
+                page_number=page_number,
+                bbox=hit["bbox"],
+                value=hit["declaration"],
+                confidence=hit["confidence"],
+                method="visual-symbol-detection",
+                verification_status="AUTOMATED",
+                note="Detected from the symbol's color and geometry only.",
+            )
+        )
+    if not items:
+        items.append(
+            EvidenceItem(
+                evidence_id=new_evidence_id(),
+                evidence_type="DECLARATION_SYMBOL",
+                page_number=page_number,
+                value="not detected",
+                confidence=0.0,
+                method="visual-symbol-detection",
+                verification_status="INSUFFICIENT_EVIDENCE",
+                note="No vegetarian/non-vegetarian symbol found in the image.",
+            )
+        )
+    return items
 
 
 def _load_processed_gray(processed_path: str) -> np.ndarray:
@@ -213,6 +281,7 @@ def analyze_evidence(request: EvidenceAnalyzeRequest) -> EvidenceAnalyzeSuccess:
     started = time.perf_counter()
     evidence: list[EvidenceItem] = []
     blocks_by_id: dict[str, dict] = {}
+    original_color = _load_color_image(request.original_path)
     for page in request.pages:
         gray = _load_processed_gray(page.processed_path)
         blocks = [b.model_dump() for b in page.blocks if b.confidence >= _MIN_BLOCK_CONFIDENCE]
@@ -221,6 +290,10 @@ def analyze_evidence(request: EvidenceAnalyzeRequest) -> EvidenceAnalyzeSuccess:
         evidence.extend(_pdp_items(gray, page.page_number, blocks, request.calibration))
         evidence.extend(_text_height_items(gray, page.page_number, blocks, request.calibration))
         evidence.extend(_readability_contrast_items(gray, page.page_number, blocks))
+        # Symbol evidence runs once per document — the original is the whole
+        # upload, not per processed page.
+        break
+    evidence.extend(_symbol_items(original_color, request.pages[0].page_number))
     evidence.extend(
         EvidenceItem(**region)
         for region in declaration_regions(

@@ -103,12 +103,83 @@ def _extraction_pages(inspection: Inspection, session: Session) -> list[dict]:
                         "confidence": float(b.confidence),
                         "page_number": b.page_number,
                         "bbox": {"x": b.x, "y": b.y, "width": b.width, "height": b.height},
+                        # Recovery-pass provenance; the AI schema treats it as
+                        # optional so older rows (NULL) serialize as "A".
+                        "source_pass": b.source_pass or "A",
                     }
                     for b in blocks
                 ],
             }
         )
     return pages
+
+
+def _validate_field_evidence(item: dict, block_texts: dict[str, str]) -> dict:
+    """§19/§20 evidence-integrity gate over one AI-service field payload.
+
+    A field may stay "detected" only when its evidence references exist on
+    the CURRENT inspection and the referenced blocks textually support the
+    value. Otherwise the field is downgraded to ambiguous — never silently
+    deleted, so the officer sees that a candidate existed and failed
+    validation. This is the last line of defense against cross-inspection
+    leakage or hallucinated values; deterministic candidates that the AI
+    service already validated are re-checked here at zero trust.
+    """
+    value = item.get("value")
+    refs = item.get("evidence") or []
+    if item.get("status") != "detected" or value is None:
+        return item
+    if not refs:
+        return {**item, "status": "ambiguous", "resolution_status": "evidence_missing"}
+    texts = [block_texts.get(ref.get("ocr_block_id"), "") for ref in refs]
+    if any(not t for t in texts):
+        return {**item, "status": "ambiguous", "resolution_status": "evidence_missing"}
+    if not _value_supported(value, texts):
+        return {**item, "status": "ambiguous", "resolution_status": "evidence_mismatch"}
+    return item
+
+
+def _value_supported(value: dict, texts: list[str]) -> bool:
+    """True when the value's core content is derivable from the evidence text.
+    Compares on compacted text (whitespace/punctuation-insensitive) so OCR
+    spacing artifacts do not fail honest values."""
+    def _compact(s: str) -> str:
+        return re.sub(r"[^0-9a-z@.+-]", "", s.lower())
+
+    corpus = _compact(" ".join(texts))
+
+    def _present(fragment: str | None) -> bool:
+        return bool(fragment) and _compact(fragment) in corpus
+
+    if "name" in value:  # company / product names
+        return _present(str(value["name"]))
+    if "address" in value:
+        # Address lines wrap; the PIN or city fragment anchors it.
+        tail = str(value["address"]).split(",")[-1].strip()
+        return _present(tail) or _present(str(value["address"])[:12])
+    if "amount" in value:  # MRP — match the numeric amount
+        return _present(f"{value['amount']:g}")
+    if "value" in value and "unit" in value:  # net quantity
+        return _present(f"{value['value']:g}")
+    if "date" in value:
+        return _present(str(value["date"]))
+    if "batch" in value:
+        return _present(str(value["batch"]))
+    if "phone" in value:
+        digits = re.sub(r"\D", "", str(value["phone"]))
+        return bool(digits) and digits in re.sub(r"\D", "", corpus)
+    if "email" in value:
+        return _present(str(value["email"]))
+    if "url" in value:
+        return _present(str(value["url"]))
+    if "ingredients" in value:
+        first = str(value["ingredients"]).split(",")[0].strip()
+        return _present(first)
+    if "declaration" in value:
+        return True  # visual-symbol fields carry CV bbox evidence, not OCR text
+    if "contact" in value:
+        return _present(str(value["contact"]))
+    return True  # free-form shapes: presence of valid evidence refs suffices
 
 
 def run_extraction(session: Session, inspection: Inspection) -> str:
@@ -129,11 +200,15 @@ def run_extraction(session: Session, inspection: Inspection) -> str:
             logger.warning("AI extraction failed for %s: %s", inspection.inspection_id, exc.message)
             return provider_name
         provider_name = result.provider or "none"
+        # §19/§20: every persisted field must be backed by evidence that
+        # exists on THIS inspection and textually supports the value.
+        block_texts = {b.block_id: b.text for b in inspection.ocr_blocks}
         for field in session.execute(
             select(ExtractedField).where(ExtractedField.inspection_id == inspection.id)
         ).scalars():
             session.delete(field)
         for item in result.fields:
+            item = _validate_field_evidence(item, block_texts)
             field = ExtractedField(
                 inspection=inspection,
                 field_name=item["field_name"],
@@ -286,6 +361,8 @@ def create_inspection_from_upload(file: UploadFile, session: Session) -> Inspect
                         height=int(bbox["height"]),
                         line_number=int(block.get("line_number", 0)),
                         block_number=int(block.get("block_number", 0)),
+                        # "A" base pipeline, "B"/"C" recovery passes.
+                        source_pass=block.get("source_pass"),
                     )
                 )
         inspection.page_count = len(analysis.pages)

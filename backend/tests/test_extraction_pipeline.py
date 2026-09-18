@@ -19,9 +19,9 @@ def test_extraction_in_get_inspection(stub_cv, stub_ai, client):
     assert field["status"] == "detected"
     assert field["value"] == {"amount": 68.0, "currency": "INR"}
     assert field["method"] == "deterministic"
-    assert field["evidence"] == [{"ocr_block_id": "block_001", "page_number": 1}]
-    # Phase 2 OCR section unchanged.
-    assert body["ocr"]["blocks_detected"] == 1
+    assert field["evidence"] == [{"ocr_block_id": "block_005", "page_number": 1}]
+    # Phase 2 OCR section: the stub now delivers one block per fixture field.
+    assert body["ocr"]["blocks_detected"] == 7
 
 
 def test_extracted_fields_persist(stub_cv, stub_ai, client):
@@ -40,7 +40,7 @@ def test_extracted_fields_persist(stub_cv, stub_ai, client):
             .all()
         )
         assert len(evidence) == 1
-        assert evidence[0].ocr_block_id == "block_001"
+        assert evidence[0].ocr_block_id == "block_005"
 
 
 def test_extraction_survives_refresh(stub_cv, stub_ai, client):

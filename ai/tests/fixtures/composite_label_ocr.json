@@ -1,0 +1,1089 @@
+{
+ "page": {
+  "width": 1448,
+  "height": 1086,
+  "full_text": "NUTRITIONAL INFORMATION\nINGREDIENTS:\n(Approx. values per 100 g)\nPotatoes, Edible Vegetable Oil\n(Palmolein), Milk Solids, Onion\n545 kcal\nEnergy\nPowder (1.2%), lodised Salt,\n689\nProtein\nSpices and Condiments, Acidity\nCarbohydrate\n=\n54.29\nRegulator (INS 330).\n219\nTotal Sugars\nCONTAINS ADDED FLAVOUR\n0.09\nAdded Sugars\n(NATURAL & NATURE IDENTICAL |\nTotal Fat\nFLAVOURING SUBSTANCES)\nGaueted Fat\n1529\n|\nTT\n|\n00g\nAllergen Information:\nTrans Fat\n__|\nContains milk. May contain traces\n620 mg\nSodium\nof soy, wheat and nuts.\nMANUFACTURED & PACKED BY:\n/\nFarmBite Foods Pvt. Ltd.\nSide (incl. of all x taxes) 45.00\nPlot No. 42, Food Park, Sector 8,\nGreater Noida, Uttar Pradesh - 201306, India.\n-\nBatch No.:\nFB0726\nIs SA1\nMfg. Date: 10 JUL 2026\n10 JUL 2026\nMARKETED BY:\nPack Date: 10 JUL 2026\n| . Best Before: 09 JAN 2027 —\nHealthyBite Consumer Products Pvt. Ltd,\n5th Fl oor, Tower A, Business Park,\n{\nAndheri (E), Mumbai - 400069,\nMaharashtra, India.\nFor consumer complaints, contact:\nCustomer Care Executive\n'\nat above address or call: 1800 123 4567\nor email: care@healthybite.com\nWebsite: www.farmbite.in\nCLEAN\nSTORE IN A COOL, DRY PLACE.\nONCE OPENED, CONSUME WITHIN 2 DAYS.\n35.19\nREAL POTATOES\nPRESERVATIVES\nJ\nLic. No. 10018051002634\nMADE WITH\nNO A ADDED"
+ },
+ "blocks": [
+  {
+   "id": "block_001",
+   "text": "NUTRITIONAL INFORMATION",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 799,
+    "y": 105,
+    "width": 230,
+    "height": 17
+   },
+   "line_number": 1,
+   "block_number": 1,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_002",
+   "text": "INGREDIENTS:",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1116,
+    "y": 105,
+    "width": 116,
+    "height": 15
+   },
+   "line_number": 2,
+   "block_number": 2,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c003",
+   "text": "(Approx. values per 100 g)",
+   "confidence": 94.6,
+   "page_number": 1,
+   "bbox": {
+    "x": 800,
+    "y": 128,
+    "width": 210,
+    "height": 21
+   },
+   "line_number": 3,
+   "block_number": 3,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c004",
+   "text": "Potatoes, Edible Vegetable Oil",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1117,
+    "y": 128,
+    "width": 233,
+    "height": 20
+   },
+   "line_number": 4,
+   "block_number": 4,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c005",
+   "text": "(Palmolein), Milk Solids, Onion",
+   "confidence": 95.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1117,
+    "y": 152,
+    "width": 239,
+    "height": 20
+   },
+   "line_number": 5,
+   "block_number": 5,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c006",
+   "text": "545 kcal",
+   "confidence": 95.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 1006,
+    "y": 158,
+    "width": 61,
+    "height": 16
+   },
+   "line_number": 6,
+   "block_number": 6,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_007",
+   "text": "Energy",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 799,
+    "y": 160,
+    "width": 50,
+    "height": 19
+   },
+   "line_number": 7,
+   "block_number": 7,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c008",
+   "text": "Powder (1.2%), lodised Salt,",
+   "confidence": 94.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 1117,
+    "y": 176,
+    "width": 216,
+    "height": 21
+   },
+   "line_number": 8,
+   "block_number": 8,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_009",
+   "text": "689",
+   "confidence": 92.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1015,
+    "y": 186,
+    "width": 36,
+    "height": 19
+   },
+   "line_number": 9,
+   "block_number": 9,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_010",
+   "text": "Protein",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 800,
+    "y": 187,
+    "width": 52,
+    "height": 16
+   },
+   "line_number": 10,
+   "block_number": 10,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c010",
+   "text": "Spices and Condiments, Acidity",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1117,
+    "y": 200,
+    "width": 245,
+    "height": 20
+   },
+   "line_number": 10,
+   "block_number": 10,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c011",
+   "text": "Carbohydrate",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 800,
+    "y": 214,
+    "width": 98,
+    "height": 20
+   },
+   "line_number": 11,
+   "block_number": 11,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_013",
+   "text": "=",
+   "confidence": 89.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 912,
+    "y": 210,
+    "width": 20,
+    "height": 1
+   },
+   "line_number": 13,
+   "block_number": 13,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_b012",
+   "text": "54.29",
+   "confidence": 70.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1006,
+    "y": 213,
+    "width": 45,
+    "height": 19
+   },
+   "line_number": 13,
+   "block_number": 13,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_c012",
+   "text": "Regulator (INS 330).",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1118,
+    "y": 223,
+    "width": 160,
+    "height": 21
+   },
+   "line_number": 12,
+   "block_number": 12,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_016",
+   "text": "219",
+   "confidence": 68.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1015,
+    "y": 239,
+    "width": 36,
+    "height": 19
+   },
+   "line_number": 16,
+   "block_number": 16,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_017",
+   "text": "Total Sugars",
+   "confidence": 93.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 811,
+    "y": 240,
+    "width": 93,
+    "height": 19
+   },
+   "line_number": 17,
+   "block_number": 17,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_018",
+   "text": "CONTAINS ADDED FLAVOUR",
+   "confidence": 80.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1126,
+    "y": 264,
+    "width": 216,
+    "height": 16
+   },
+   "line_number": 18,
+   "block_number": 18,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_019",
+   "text": "0.09",
+   "confidence": 85.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1015,
+    "y": 265,
+    "width": 36,
+    "height": 20
+   },
+   "line_number": 19,
+   "block_number": 19,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c015",
+   "text": "Added Sugars",
+   "confidence": 94.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 812,
+    "y": 266,
+    "width": 102,
+    "height": 19
+   },
+   "line_number": 15,
+   "block_number": 15,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c016",
+   "text": "(NATURAL & NATURE IDENTICAL |",
+   "confidence": 90.6,
+   "page_number": 1,
+   "bbox": {
+    "x": 1126,
+    "y": 286,
+    "width": 253,
+    "height": 20
+   },
+   "line_number": 16,
+   "block_number": 16,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_022",
+   "text": "Total Fat",
+   "confidence": 71.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 800,
+    "y": 290,
+    "width": 108,
+    "height": 19
+   },
+   "line_number": 22,
+   "block_number": 22,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c018",
+   "text": "FLAVOURING SUBSTANCES)",
+   "confidence": 93.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 1126,
+    "y": 308,
+    "width": 217,
+    "height": 20
+   },
+   "line_number": 18,
+   "block_number": 18,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_024",
+   "text": "Gaueted Fat",
+   "confidence": 8.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 812,
+    "y": 319,
+    "width": 99,
+    "height": 17
+   },
+   "line_number": 24,
+   "block_number": 24,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_b020",
+   "text": "1529",
+   "confidence": 85.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1007,
+    "y": 319,
+    "width": 45,
+    "height": 19
+   },
+   "line_number": 25,
+   "block_number": 25,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_026",
+   "text": "|",
+   "confidence": 40.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1076,
+    "y": 336,
+    "width": 1,
+    "height": 1
+   },
+   "line_number": 26,
+   "block_number": 26,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_027",
+   "text": "TT",
+   "confidence": 10.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 930,
+    "y": 337,
+    "width": 37,
+    "height": 1
+   },
+   "line_number": 27,
+   "block_number": 27,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_028",
+   "text": "|",
+   "confidence": 0.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 944,
+    "y": 339,
+    "width": 32,
+    "height": 11
+   },
+   "line_number": 28,
+   "block_number": 28,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_029",
+   "text": "00g",
+   "confidence": 73.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1016,
+    "y": 346,
+    "width": 36,
+    "height": 19
+   },
+   "line_number": 29,
+   "block_number": 29,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_b021",
+   "text": "Allergen Information:",
+   "confidence": 91.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1117,
+    "y": 346,
+    "width": 172,
+    "height": 22
+   },
+   "line_number": 27,
+   "block_number": 27,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_b022",
+   "text": "Trans Fat",
+   "confidence": 93.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 812,
+    "y": 347,
+    "width": 69,
+    "height": 15
+   },
+   "line_number": 28,
+   "block_number": 28,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_032",
+   "text": "__|",
+   "confidence": 84.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1064,
+    "y": 369,
+    "width": 10,
+    "height": 1
+   },
+   "line_number": 32,
+   "block_number": 32,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c022",
+   "text": "Contains milk. May contain traces",
+   "confidence": 95.6,
+   "page_number": 1,
+   "bbox": {
+    "x": 1118,
+    "y": 371,
+    "width": 252,
+    "height": 20
+   },
+   "line_number": 23,
+   "block_number": 23,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c023",
+   "text": "620 mg",
+   "confidence": 95.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1006,
+    "y": 372,
+    "width": 54,
+    "height": 20
+   },
+   "line_number": 24,
+   "block_number": 24,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_035",
+   "text": "Sodium",
+   "confidence": 95.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 801,
+    "y": 374,
+    "width": 57,
+    "height": 16
+   },
+   "line_number": 35,
+   "block_number": 35,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c024",
+   "text": "of soy, wheat and nuts.",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1118,
+    "y": 394,
+    "width": 176,
+    "height": 21
+   },
+   "line_number": 25,
+   "block_number": 25,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c025",
+   "text": "MANUFACTURED & PACKED BY:",
+   "confidence": 94.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 796,
+    "y": 427,
+    "width": 264,
+    "height": 17
+   },
+   "line_number": 26,
+   "block_number": 26,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_038",
+   "text": "/",
+   "confidence": 0.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1154,
+    "y": 440,
+    "width": 9,
+    "height": 4
+   },
+   "line_number": 38,
+   "block_number": 38,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c026",
+   "text": "FarmBite Foods Pvt. Ltd.",
+   "confidence": 88.2,
+   "page_number": 1,
+   "bbox": {
+    "x": 796,
+    "y": 450,
+    "width": 200,
+    "height": 18
+   },
+   "line_number": 27,
+   "block_number": 27,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c027",
+   "text": "Side (incl. of all x taxes) 45.00",
+   "confidence": 71.6,
+   "page_number": 1,
+   "bbox": {
+    "x": 1168,
+    "y": 454,
+    "width": 154,
+    "height": 52
+   },
+   "line_number": 28,
+   "block_number": 28,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c028",
+   "text": "Plot No. 42, Food Park, Sector 8,",
+   "confidence": 96.1,
+   "page_number": 1,
+   "bbox": {
+    "x": 796,
+    "y": 474,
+    "width": 246,
+    "height": 20
+   },
+   "line_number": 29,
+   "block_number": 29,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c029",
+   "text": "Greater Noida, Uttar Pradesh - 201306, India.",
+   "confidence": 95.1,
+   "page_number": 1,
+   "bbox": {
+    "x": 796,
+    "y": 496,
+    "width": 338,
+    "height": 20
+   },
+   "line_number": 30,
+   "block_number": 30,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_043",
+   "text": "-",
+   "confidence": 49.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1018,
+    "y": 505,
+    "width": 5,
+    "height": 3
+   },
+   "line_number": 43,
+   "block_number": 43,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c030",
+   "text": "Batch No.:",
+   "confidence": 90.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1169,
+    "y": 526,
+    "width": 80,
+    "height": 16
+   },
+   "line_number": 31,
+   "block_number": 31,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c031",
+   "text": "FB0726",
+   "confidence": 86.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1276,
+    "y": 527,
+    "width": 56,
+    "height": 15
+   },
+   "line_number": 32,
+   "block_number": 32,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c032",
+   "text": "Is SA1",
+   "confidence": 54.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 804,
+    "y": 543,
+    "width": 68,
+    "height": 38
+   },
+   "line_number": 33,
+   "block_number": 33,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c034",
+   "text": "Mfg. Date: 10 JUL 2026",
+   "confidence": 64.4,
+   "page_number": 1,
+   "bbox": {
+    "x": 1169,
+    "y": 559,
+    "width": 197,
+    "height": 20
+   },
+   "line_number": 35,
+   "block_number": 35,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_048",
+   "text": "10 JUL 2026",
+   "confidence": 71.3,
+   "page_number": 1,
+   "bbox": {
+    "x": 1276,
+    "y": 559,
+    "width": 90,
+    "height": 16
+   },
+   "line_number": 48,
+   "block_number": 48,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_b034",
+   "text": "MARKETED BY:",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 797,
+    "y": 607,
+    "width": 130,
+    "height": 16
+   },
+   "line_number": 45,
+   "block_number": 45,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_c035",
+   "text": "Pack Date: 10 JUL 2026",
+   "confidence": 92.2,
+   "page_number": 1,
+   "bbox": {
+    "x": 1170,
+    "y": 592,
+    "width": 196,
+    "height": 16
+   },
+   "line_number": 36,
+   "block_number": 36,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_051",
+   "text": "| . Best Before: 09 JAN 2027 —",
+   "confidence": 71.6,
+   "page_number": 1,
+   "bbox": {
+    "x": 1145,
+    "y": 619,
+    "width": 222,
+    "height": 36
+   },
+   "line_number": 51,
+   "block_number": 51,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_052",
+   "text": "HealthyBite Consumer Products Pvt. Ltd,",
+   "confidence": 92.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 798,
+    "y": 628,
+    "width": 331,
+    "height": 23
+   },
+   "line_number": 52,
+   "block_number": 52,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c038",
+   "text": "5th Fl oor, Tower A, Business Park,",
+   "confidence": 95.6,
+   "page_number": 1,
+   "bbox": {
+    "x": 798,
+    "y": 652,
+    "width": 274,
+    "height": 20
+   },
+   "line_number": 39,
+   "block_number": 39,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_054",
+   "text": "{",
+   "confidence": 89.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1391,
+    "y": 673,
+    "width": 4,
+    "height": 27
+   },
+   "line_number": 54,
+   "block_number": 54,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c039",
+   "text": "Andheri (E), Mumbai - 400069,",
+   "confidence": 93.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 798,
+    "y": 676,
+    "width": 256,
+    "height": 21
+   },
+   "line_number": 40,
+   "block_number": 40,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c040",
+   "text": "Maharashtra, India.",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 799,
+    "y": 700,
+    "width": 155,
+    "height": 19
+   },
+   "line_number": 41,
+   "block_number": 41,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_b040",
+   "text": "For consumer complaints, contact:",
+   "confidence": 95.8,
+   "page_number": 1,
+   "bbox": {
+    "x": 800,
+    "y": 741,
+    "width": 295,
+    "height": 20
+   },
+   "line_number": 52,
+   "block_number": 52,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_058",
+   "text": "Customer Care Executive",
+   "confidence": 94.3,
+   "page_number": 1,
+   "bbox": {
+    "x": 799,
+    "y": 765,
+    "width": 212,
+    "height": 17
+   },
+   "line_number": 58,
+   "block_number": 58,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_059",
+   "text": "'",
+   "confidence": 14.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 764,
+    "y": 785,
+    "width": 3,
+    "height": 8
+   },
+   "line_number": 59,
+   "block_number": 59,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c043",
+   "text": "at above address or call: 1800 123 4567",
+   "confidence": 95.8,
+   "page_number": 1,
+   "bbox": {
+    "x": 799,
+    "y": 787,
+    "width": 326,
+    "height": 17
+   },
+   "line_number": 44,
+   "block_number": 44,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c044",
+   "text": "or email: care@healthybite.com",
+   "confidence": 93.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 800,
+    "y": 810,
+    "width": 269,
+    "height": 20
+   },
+   "line_number": 46,
+   "block_number": 46,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_062",
+   "text": "Website: www.farmbite.in",
+   "confidence": 92.5,
+   "page_number": 1,
+   "bbox": {
+    "x": 799,
+    "y": 834,
+    "width": 218,
+    "height": 17
+   },
+   "line_number": 62,
+   "block_number": 62,
+   "source_pass": "A"
+  },
+  {
+   "id": "block_c049",
+   "text": "CLEAN",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1292,
+    "y": 928,
+    "width": 48,
+    "height": 14
+   },
+   "line_number": 51,
+   "block_number": 51,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c047",
+   "text": "STORE IN A COOL, DRY PLACE.",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 814,
+    "y": 894,
+    "width": 239,
+    "height": 18
+   },
+   "line_number": 49,
+   "block_number": 49,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c048",
+   "text": "ONCE OPENED, CONSUME WITHIN 2 DAYS.",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 814,
+    "y": 916,
+    "width": 326,
+    "height": 18
+   },
+   "line_number": 50,
+   "block_number": 50,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_b018",
+   "text": "35.19",
+   "confidence": 79.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1006,
+    "y": 293,
+    "width": 45,
+    "height": 19
+   },
+   "line_number": 22,
+   "block_number": 22,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_c052",
+   "text": "REAL POTATOES",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 66,
+    "y": 955,
+    "width": 130,
+    "height": 20
+   },
+   "line_number": 55,
+   "block_number": 55,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_b050",
+   "text": "PRESERVATIVES",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 236,
+    "y": 963,
+    "width": 133,
+    "height": 16
+   },
+   "line_number": 65,
+   "block_number": 65,
+   "source_pass": "B"
+  },
+  {
+   "id": "block_c020",
+   "text": "J",
+   "confidence": 80.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 1373,
+    "y": 326,
+    "width": 5,
+    "height": 8
+   },
+   "line_number": 20,
+   "block_number": 20,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c033",
+   "text": "Lic. No. 10018051002634",
+   "confidence": 89.3,
+   "page_number": 1,
+   "bbox": {
+    "x": 896,
+    "y": 553,
+    "width": 204,
+    "height": 16
+   },
+   "line_number": 34,
+   "block_number": 34,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c050",
+   "text": "MADE WITH",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 82,
+    "y": 936,
+    "width": 95,
+    "height": 20
+   },
+   "line_number": 52,
+   "block_number": 52,
+   "source_pass": "C"
+  },
+  {
+   "id": "block_c051",
+   "text": "NO A ADDED",
+   "confidence": 96.0,
+   "page_number": 1,
+   "bbox": {
+    "x": 260,
+    "y": 945,
+    "width": 86,
+    "height": 16
+   },
+   "line_number": 53,
+   "block_number": 53,
+   "source_pass": "C"
+  }
+ ]
+}

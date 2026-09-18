@@ -15,7 +15,7 @@ _MRP_FIELDS = [
         "field_name": "mrp", "status": "detected",
         "value": {"amount": 68.0, "currency": "INR"}, "raw_text": "MRP ₹68.00",
         "ocr_confidence": 96.4, "extraction_confidence": 98.0, "method": "deterministic",
-        "evidence": [{"ocr_block_id": "block_001", "page_number": 1}],
+        "evidence": [{"ocr_block_id": "block_005", "page_number": 1}],
     },
 ]
 

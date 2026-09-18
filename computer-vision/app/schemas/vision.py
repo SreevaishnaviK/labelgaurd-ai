@@ -17,6 +17,10 @@ class OCRBlock(BaseModel):
     line_number: int
     block_number: int
     page_number: int
+    # Which OCR pass produced this block ("A" = base pipeline, "B" =
+    # contrast-recovery, "C" = upscaled-recovery). Optional so historical
+    # payloads stay valid.
+    source_pass: str | None = None
 
 
 class OCRPage(BaseModel):
@@ -28,6 +32,10 @@ class OCRPage(BaseModel):
     # Geometry of the processed page vs the original upload.
     processed_image: str
     warped: bool
+    # Multi-pass recovery: passes that ran ("A" always; "B"/"C" when a
+    # mandatory-declaration anchor was missing) and their bounded extra cost.
+    ocr_passes: list[str] = Field(default_factory=lambda: ["A"])
+    recovery_time_ms: int = 0
 
 
 class AnalyzeMetadata(BaseModel):
@@ -77,6 +85,10 @@ class EvidenceAnalyzeRequest(BaseModel):
     pages: list[EvidencePage] = Field(min_length=1)
     fields: list[EvidenceFieldRef] = Field(default_factory=list)
     calibration: Calibration | None = None
+    # Path of the unprocessed original upload (relative to UPLOAD_DIR), when
+    # available — symbol detection needs color, which the binarized OCR image
+    # no longer carries. Optional: without it symbol evidence is INSUFFICIENT.
+    original_path: str | None = None
 
 
 class EvidenceItem(BaseModel):

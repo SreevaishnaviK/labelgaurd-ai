@@ -250,6 +250,9 @@ class OCRBlock(Base):
     height: Mapped[int] = mapped_column(nullable=False)
     line_number: Mapped[int] = mapped_column(nullable=False)
     block_number: Mapped[int] = mapped_column(nullable=False)
+    # Which OCR pass produced this block ("A" base pipeline, "B"/"C" recovery
+    # passes). Null for historical rows written before Phase 9B.
+    source_pass: Mapped[str | None] = mapped_column(String(2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     inspection: Mapped[Inspection] = relationship(back_populates="ocr_blocks")

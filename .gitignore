@@ -41,3 +41,6 @@ Thumbs.db
 # Local agent workspace
 .freebuff/
 __pycache__/
+
+# Local E2E scratch: real label images + OCR dumps (never commit)
+.farmbite/
