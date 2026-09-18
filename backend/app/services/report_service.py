@@ -131,14 +131,50 @@ def _fmt_dt(value: datetime | None) -> str:
     return value.strftime("%d %b %Y, %H:%M UTC") if value else "—"
 
 
+NOT_DETECTED_TEXT = "Not detected from available evidence"
+
+
 def _field_display(value) -> str | None:
+    """Render a persisted extraction value without inventing content.
+
+    Structured values are rendered according to their shape (e.g. the MRP
+    ``{"amount": 30.0, "currency": "INR"}`` becomes "INR 30.00") — never by
+    picking an arbitrary member such as the currency alone.
+    """
     if isinstance(value, dict):
+        if isinstance(value.get("amount"), (int, float)):
+            amount = f"{float(value['amount']):,.2f}"
+            currency = value.get("currency")
+            return f"{currency} {amount}" if currency else amount
         for v in value.values():
             if isinstance(v, str) and v.strip():
                 return v.strip()
+            if isinstance(v, (int, float)):
+                return f"{v:g}"
+    if isinstance(value, (int, float)):
+        return f"{value:g}"
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _scalar(value) -> str | None:
+    """Best-effort text for a persisted scalar/structured attribute."""
+    return _field_display(value)
+
+
+def _info_text(value) -> str | None:
+    """Render rule-level required/actual information.
+
+    These arrive as a list of required field names and a dict of actual
+    values (persisted JSON on the rule evaluation).
+    """
+    if isinstance(value, dict) and value:
+        parts = [f"{k}: {v}" for k in value if (v := _field_display(value[k]))]
+        return "; ".join(parts) or None
+    if isinstance(value, (list, tuple)) and value:
+        return ", ".join(str(v) for v in value) or None
+    return _field_display(value)
 
 
 def _kv_table(rows: list[tuple[str, str]], styles) -> Table:
@@ -185,12 +221,20 @@ def _product_rows(session: Session, inspection: Inspection) -> list[tuple[str, s
     by_name = {f.field_name: f for f in fields}
     rows = []
     for name in _PRODUCT_FIELDS:
+        label = _FIELD_LABELS.get(name, name)
         field = by_name.get(name)
-        if field is None or field.status != "detected":
+        if field is None:
+            # In the spec'd display list but never extracted at all.
+            rows.append((label, NOT_DETECTED_TEXT))
             continue
-        display = _field_display(field.value_json)
-        if display:
-            rows.append((_FIELD_LABELS.get(name, name), display))
+        if field.status == "detected":
+            display = _field_display(field.value_json)
+            if display:
+                rows.append((label, display))
+            continue
+        # Detected-elsewhere statuses are shown as their raw state; an
+        # explicit NOT_DETECTED must never be silently upgraded or dropped.
+        rows.append((label, NOT_DETECTED_TEXT if field.status == "not_detected" else field.status))
     return rows
 
 
@@ -262,11 +306,25 @@ def build_report_pdf(session: Session, inspection: Inspection, evaluation: Inspe
         officer = result.get("officer_verification")
         story.append(Paragraph(f"<b>{result['rule_number']} — {result['rule_title']}</b>", styles["body"]))
         status_line = f"Status: {result['status']}"
+        if result.get("severity"):
+            status_line += f" · Severity: {result['severity']}"
         if officer:
             status_line += f" · Effective: {result.get('effective_status')}"
         story.append(Paragraph(status_line, styles["body"]))
         story.append(Paragraph(f"Finding: {result['finding']}", styles["body"]))
+        required = _info_text(result.get("required_information"))
+        if required:
+            story.append(Paragraph(f"Required information: {required}", styles["body"]))
+        actual = _info_text(result.get("actual_information"))
+        if actual:
+            story.append(Paragraph(f"Actual information: {actual}", styles["body"]))
         story.append(Paragraph(f"Confidence: {conf_text}", styles["body"]))
+        story.append(
+            Paragraph(
+                "Officer verification: " + ("recorded below" if officer else "Not yet verified"),
+                styles["body"],
+            )
+        )
         evidence_refs = []
         for ev in result.get("evidence") or []:
             ref = ev.get("evidence_reference") or ev.get("field_name") or ""
