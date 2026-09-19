@@ -104,7 +104,10 @@ _CONTACT_LABEL_RE = re.compile(
 )
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-
+_FSSAI_RE = re.compile(
+    r"\bFSSAI(?:\s*(?:NO|NUMBER|LIC(?:ENCE|ENSE))\.?)?\s*[:.#\-]?\s*(\d{10,14})\b",
+    re.IGNORECASE,
+)
 _ROLES = {
     "manufacturer": (
         r"\bmanufactured\s*(?:&|and)\s*(?:packed|marketed)?\s*by\b"
@@ -761,14 +764,31 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
                         )
                     break
         return found
+    def _extract_fssai(self, lines: list[VisualLine]) -> list[Trace]:
+        """Extract the FSSAI licence number from its own labelled OCR line."""
+        traces = []
 
+        for line, match in spatial.find_anchor(lines, _FSSAI_RE):
+            number = match.group(1)
+            if not number:
+                continue
+
+            traces.append(
+                Trace(
+                    value={"fssai_license_number": number},
+                    blocks=_dedup(line.blocks),
+                    raw_text=line.text[match.start() :].strip(),
+                )
+            )
+
+        return traces
     def _extract_code(self, kind: str, word: str, lines: list[VisualLine]) -> list[Trace]:
         """Batch/lot codes: the value must be spatially associated with its
         own anchor — never borrowed from a label keyword or a quantity."""
         anchor_re = re.compile(rf"\b{word}\s*(?:no|number)?\b\s*[:.#\-]?\s*", re.IGNORECASE)
         traces = []
         for line, match in spatial.find_anchor(lines, anchor_re):
-            candidate = line.text[match.end() :].strip(" :.#-")
+            candidate = re.split(r"\b(?:FSSAI|MRP|NET\s*(?:WEIGHT|WT)|MFG|EXP|USE\s*BY|BEST\s*BEFORE)\b", line.text[match.end():], maxsplit=1, flags=re.IGNORECASE)[0].strip(" :.#-")
             blocks = list(line.blocks)
             if not candidate or _RESERVED_RE.search(candidate) or candidate.isdigit():
                 candidate = None
@@ -789,7 +809,7 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
                     Trace(
                         value={"batch": candidate},
                         blocks=_dedup(blocks),
-                        raw_text=f"{line.text[match.start() :].strip()} {candidate}".strip(),
+                        raw_text=f"{line.text[match.start() : match.end()].strip()} {candidate}".strip(),
                     )
                 )
         return traces
@@ -1035,6 +1055,7 @@ class DeterministicFieldExtractor(BaseFieldExtractor):
             "packer_address": self._extract_role_address("packer", lines),
             "importer_address": self._extract_role_address("importer", lines),
             "batch_number": self._extract_code("batch_number", "batch", lines),
+            "fssai_license_number": self._extract_fssai(lines),
             "lot_number": self._extract_code("lot_number", "lot", lines),
             "website": self._extract_website(blocks),
             "country_of_origin": self._extract_country(lines),

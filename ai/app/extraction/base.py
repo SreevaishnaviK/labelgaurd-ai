@@ -19,7 +19,7 @@ FIELD_NAMES: tuple[str, ...] = (
     "net_quantity", "mrp", "manufacturing_date", "packing_date",
     "best_before", "use_by", "expiry_date", "consumer_care",
     "customer_care_phone", "customer_care_email", "website",
-    "batch_number", "lot_number", "country_of_origin", "ingredients",
+    "batch_number","fssai_license_number", "lot_number", "country_of_origin", "ingredients",
     "vegetarian_non_vegetarian",
 )
 
