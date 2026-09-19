@@ -9,6 +9,10 @@ echo "Starting Computer Vision..."
 cd /app/computer-vision
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 &
 
+echo "Waiting for Computer Vision..."
+sleep 3
+python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=5).read().decode())"
+
 echo "Starting AI service..."
 cd /app/ai
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8002 &
