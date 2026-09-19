@@ -7,7 +7,7 @@ alembic upgrade head
 
 echo "Starting Computer Vision..."
 cd /app/computer-vision
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 > /tmp/cv.log 2>&1 &
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 &
 
 echo "Waiting for Computer Vision..."
 
