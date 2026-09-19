@@ -7,16 +7,16 @@ alembic upgrade head
 
 echo "Starting Computer Vision..."
 cd /app/computer-vision
-uvicorn app.main:app --host 127.0.0.1 --port 8001 &
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 &
 
 echo "Starting AI service..."
 cd /app/ai
-uvicorn app.main:app --host 127.0.0.1 --port 8002 &
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8002 &
 
 echo "Starting Legal Engine..."
 cd /app/legal-engine
-uvicorn app.main:app --host 127.0.0.1 --port 8003 &
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8003 &
 
 echo "Starting Backend..."
 cd /app/backend
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+exec python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
